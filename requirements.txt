@@ -1,4 +1,4 @@
 streamlit
 pdfplumber
-pypdfum2
+pypdfium2
 openai
