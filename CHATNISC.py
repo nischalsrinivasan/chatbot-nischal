@@ -31,9 +31,9 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
-        # Smart structural context extraction for 100+ page cases
-        if total_chars > 160000:
-            optimized_context = raw_text[:120000] + "\n\n[... DOCUMENT TRUNCATED FOR CONTEXT OPTIMIZATION ...]\n\n" + raw_text[-40000:]
+        # Restructured character allocation to stay safely under OpenRouter's 11,803 prompt token cap
+        if total_chars > 37000:
+            optimized_context = raw_text[:25000] + "\n\n[... DOCUMENT TRUNCATED TO FIT FREE TIER CONSTRAINTS ...]\n\n" + raw_text[-12000:]
         else:
             optimized_context = raw_text
 
@@ -59,7 +59,7 @@ if uploaded_file:
                             response = client.chat.completions.create(
                                 model="google/gemini-2.5-flash",
                                 messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=1200 # Lowered to clear the OpenRouter 1416 token free tier ceiling
+                                max_tokens=1000  # Stays safe under the execution budget
                             )
                             st.write(response.choices[0].message.content)
                         except Exception as e:
@@ -82,7 +82,7 @@ if uploaded_file:
                         chat_response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=500 # Tightened slightly to stay clear of dynamic rate changes
+                            max_tokens=400
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
