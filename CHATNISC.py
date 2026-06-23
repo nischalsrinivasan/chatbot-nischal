@@ -47,13 +47,10 @@ if uploaded_file:
                 else:
                     with st.spinner("Processing deep case structure..."):
                         full_prompt = (
-                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and extract a highly relevant legal brief. "
-                            "CRITICAL INSTRUCTION: Ignore all procedural fluff, boilerplate text, lists of advocate names, and administrative history. "
-                            "Filter out the noise and focus strictly on substantive legal elements:\n\n"
-                            "1. MATERIAL FACTS: Extract only the critical, legally impactful facts that directly gave rise to the cause of action and influenced the final decision. Leave out minor background dates or structural filler.\n"
-                            "2. KEY LEGAL ISSUES: Identify only the core questions of law that the court was required to answer to resolve the dispute.\n"
-                            "3. RATIO DECIDENDI: Isolate the exact legal principle, doctrine, or rule of law derived from the material facts that forms the binding precedent of the judgment.\n\n"
-                            "At the very end, add a distinct section titled '🚀 INSTANT SNAPSHOT' containing a crisp, one-sentence absolute summary for each: Fact, Issue, and Ratio, ensuring all material elements are covered cleanly without unnecessary words.\n\n"
+                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and perform two tasks:\n"
+                            "1. Provide a highly detailed, comprehensive analysis extracting: Material Facts, Key Legal Issues, and Ratio Decidendi. Do not cut off early.\n"
+                            "2. At the very end, add a distinct section titled '🚀 INSTANT SNAPSHOT' containing an ultra-short, "
+                            "one-sentence summary covering the absolute essence of the Facts, Issues, and Ratio. Cover all material elements.\n\n"
                             f"Case text segments:\n\n{optimized_context}"
                         )
                         
@@ -61,7 +58,7 @@ if uploaded_file:
                             response = client.chat.completions.create(
                                 model="google/gemini-2.5-flash",
                                 messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=3000
+                                max_tokens=3000 # Maxed out token ceiling to guarantee complete generation
                             )
                             st.write(response.choices[0].message.content)
                         except Exception as e:
@@ -86,7 +83,7 @@ if uploaded_file:
                         chat_response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=2500
+                            max_tokens=2500 # Scaled token window to handle deep conversational responses completely
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
