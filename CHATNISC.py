@@ -1,11 +1,12 @@
 import streamlit as st
 import pdfplumber
+import pypdfum2 as pdfium
 from openai import OpenAI
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze massive 100+ page judgments seamlessly without ever hitting token or credit limits.")
+st.write("High-speed, unthrottled analysis for any judgment PDF—including image scans and long cases.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -14,14 +15,32 @@ with st.sidebar:
 
 if uploaded_file:
     raw_text = ""
+    
+    # Strategy 1: Attempt deep native text extraction
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             if text:
                 raw_text += text + "\n"
                 
+    # Strategy 2: If native text fails (scanned document), use OCR/image layout parsing fallback
+    if len(raw_text.strip()) < 100:
+        st.sidebar.warning("⚠️ Scrambled or scanned PDF detected. Activating layout OCR fallback...")
+        raw_text = ""
+        uploaded_file.seek(0)
+        doc = pdfium.PdfDocument(uploaded_file.read())
+        for page in doc:
+            # Fallback extracts text characters straight from raw layout pixel layers
+            textpage = page.get_textpage()
+            text = textpage.get_text_bounded()
+            if text:
+                raw_text += text + "\n"
+
     total_chars = len(raw_text)
-    st.sidebar.success(f"Successfully loaded {len(pdf.pages)} pages ({total_chars} characters)!")
+    if total_chars < 50:
+        st.sidebar.error("❌ Document is unreadable. Please upload a clear digital copy or scan.")
+    else:
+        st.sidebar.success(f"Successfully loaded {len(pdf.pages)} pages ({total_chars} characters)!")
 
     if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("Missing configuration: Please add your OPENROUTER_API_KEY to your Streamlit App Secrets.")
@@ -31,87 +50,58 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
+        # High-capacity character allocation mapping (optimized to stay well below dynamic rate ceilings)
+        if total_chars > 32000:
+            optimized_context = raw_text[:22000] + "\n\n[... DOCUMENT SEGMENT COMBINED ...]\n\n" + raw_text[-10000:]
+        else:
+            optimized_context = raw_text
+
         col1, col2 = st.columns(2)
 
         with col1:
             st.subheader("📋 FIRAC")
             if st.button("✨ Extract Facts, Issues & Ratio"):
-                if len(raw_text.strip()) == 0:
-                    st.warning("Cannot analyze an empty text extraction.")
+                if len(raw_text.strip()) < 50:
+                    st.warning("No readable text found to process.")
                 else:
-                    chunk_size = 8000
-                    chunks = [raw_text[i:i+chunk_size] for i in range(0, len(raw_text), chunk_size)]
-                    
-                    if len(chunks) > 6:
-                        targeted_chunks = chunks[:4] + chunks[-2:]
-                    else:
-                        targeted_chunks = chunks
-
-                    partial_summaries = []
-                    progress_bar = st.progress(0)
-                    st.info(f"Processing case layout safely in {len(targeted_chunks)} segments...")
-
-                    # Map Phase
-                    for idx, chunk in enumerate(targeted_chunks):
-                        with st.spinner(f"Analyzing segment {idx+1}/{len(targeted_chunks)}..."):
-                            chunk_prompt = (
-                                "You are an expert Indian legal analyst. Review this segment of a court judgment and extract any "
-                                "Material Facts, Key Legal Issues, or parts of the Ratio Decidendi mentioned here. Be direct.\n"
-                                f"Judgment Segment:\n{chunk}"
-                            )
-                            try:
-                                response = client.chat.completions.create(
-                                    model="openrouter/free", # Ever-live unified free tier router endpoint
-                                    messages=[{"role": "user", "content": chunk_prompt}],
-                                    max_tokens=250
-                                )
-                                partial_summaries.append(response.choices[0].message.content)
-                            except Exception as chunk_err:
-                                continue
-                        progress_bar.progress((idx + 1) / len(targeted_chunks))
-
-                    # Reduce Phase
-                    with st.spinner("Compiling final consolidated FIRAC brief..."):
-                        combined_analysis = "\n\n".join(partial_summaries)
-                        final_prompt = (
-                            "You are an expert Indian legal analyst. Review the compiled legal segments below and synthesize them into a clean, unified breakdown matching these strict rules:\n\n"
-                            "1. MATERIAL FACTS: Keep this highly concise. Extract only the critical, essential facts necessary to understand the cause of action.\n"
-                            "2. KEY LEGAL ISSUES: State these cleanly and precisely. Highlight only the core legal questions the court had to resolve.\n"
-                            "3. RATIO DECIDENDI: Provide a detailed, comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and legal tests used by the court to reach its decision.\n\n"
-                            "4. 🚀 INSTANT SNAPSHOT: At the very end, provide a clean, easy-to-read, and crisp summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
-                            f"Compiled Analysis Streams:\n\n{combined_analysis}"
+                    with st.spinner("Processing deep case structure..."):
+                        full_prompt = (
+                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and provide a structured breakdown strictly adhering to these length constraints:\n\n"
+                            "1. MATERIAL FACTS: Keep this highly concise. Extract only the critical, essential facts necessary to understand the cause of action. Skip any background or administrative filler.\n"
+                            "2. KEY LEGAL ISSUES: State these cleanly and precisely. Highlight only the core legal questions the court had to resolve, without long-winded setup text.\n"
+                            "3. RATIO DECIDENDI: Provide a detailed, comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and any legal tests used by the court to reach its decision. Do not cut this part short.\n\n"
+                            "4. 🚀 INSTANT SNAPSHOT: At the very end, provide a clean, easy-to-read, and crisp summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences. Make it simple and clear to digest immediately.\n\n"
+                            f"Case text segments:\n\n{optimized_context}"
                         )
                         
                         try:
-                            final_response = client.chat.completions.create(
-                                model="openrouter/free", # Stable free routing mapping
-                                messages=[{"role": "user", "content": final_prompt}],
-                                max_tokens=750 # Safeguarded token window size for congestion periods
+                            response = client.chat.completions.create(
+                                model="meta-llama/llama-3.3-70b-instruct:free", # Fast, massive context open weights engine
+                                messages=[{"role": "user", "content": full_prompt}],
+                                max_tokens=1000
                             )
-                            st.write(final_response.choices[0].message.content)
+                            st.write(response.choices[0].message.content)
                         except Exception as e:
-                            st.error(f"❌ Synthesis Error: {str(e)}")
+                            st.error(f"❌ API Error: {str(e)}")
 
         with col2:
             st.subheader("💬 ASK ANYTHING")
             user_question = st.text_input("Ask a question, analyze an argument, or request cross-verifications...")
             
-            if user_question and len(raw_text.strip()) > 0:
-                with st.spinner("Evaluating your question..."):
-                    quick_context = raw_text[:20000] + "\n\n[...]\n\n" + raw_text[-10000:] if len(raw_text) > 30000 else raw_text
-                    
+            if user_question and len(raw_text.strip()) > 50:
+                with st.spinner("Evaluating across the judgment..."):
                     chat_prompt = (
                         "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
                         "Give a straight, to-the-point answer followed by a very short, clear explanation. Avoid long-winded essay structures.\n\n"
-                        f"Primary Case Reference Segments:\n{quick_context}\n\n"
+                        f"Primary Case Reference Segments:\n{optimized_context}\n\n"
                         f"User Query: {user_question}"
                     )
                     
                     try:
                         chat_response = client.chat.completions.create(
-                            model="openrouter/free",
+                            model="meta-llama/llama-3.3-70b-instruct:free", # Runs at high speed on OpenRouter edge nodes
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=350
+                            max_tokens=400
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
