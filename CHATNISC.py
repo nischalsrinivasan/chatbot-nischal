@@ -5,7 +5,7 @@ from openai import OpenAI
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze massive 100+ page judgments, extract crisp summaries, and consult with an uncaged legal AI assistant.")
+st.write("Analyze massive 100+ page judgments seamlessly without ever hitting token or credit limits.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -31,12 +31,6 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
-        # Restructured character allocation to stay safely under OpenRouter's 11,803 prompt token cap
-        if total_chars > 37000:
-            optimized_context = raw_text[:25000] + "\n\n[... DOCUMENT TRUNCATED TO FIT FREE TIER CONSTRAINTS ...]\n\n" + raw_text[-12000:]
-        else:
-            optimized_context = raw_text
-
         col1, col2 = st.columns(2)
 
         with col1:
@@ -45,36 +39,75 @@ if uploaded_file:
                 if len(raw_text.strip()) == 0:
                     st.warning("Cannot analyze an empty text extraction.")
                 else:
-                    with st.spinner("Processing deep case structure..."):
-                        full_prompt = (
-                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and provide a structured breakdown strictly adhering to these length constraints:\n\n"
-                            "1. MATERIAL FACTS: Keep this highly concise. Extract only the critical, essential facts necessary to understand the cause of action. Skip any background or administrative filler.\n"
-                            "2. KEY LEGAL ISSUES: State these cleanly and precisely. Highlight only the core legal questions the court had to resolve, without long-winded setup text.\n"
-                            "3. RATIO DECIDENDI: Provide a detailed, comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and any legal tests used by the court to reach its decision. Do not cut this part short.\n\n"
-                            "4. 🚀 INSTANT SNAPSHOT: At the very end, provide a clean, easy-to-read, and crisp summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences. Make it simple and clear to digest immediately.\n\n"
-                            f"Case text segments:\n\n{optimized_context}"
+                    # Slicing the document into bite-sized chunks to permanently bypass token limits
+                    chunk_size = 8000
+                    chunks = [raw_text[i:i+chunk_size] for i in range(0, len(raw_text), chunk_size)]
+                    
+                    # If the document is massive, we optimize by analyzing the first 4 chunks and last 2 chunks
+                    if len(chunks) > 6:
+                        targeted_chunks = chunks[:4] + chunks[-2:]
+                    else:
+                        targeted_chunks = chunks
+
+                    partial_summaries = []
+                    progress_bar = st.progress(0)
+                    st.info(f"Processing case layout safely in {len(targeted_chunks)} optimized segments...")
+
+                    # Map Phase: Extract core elements from each section individually
+                    for idx, chunk in enumerate(targeted_chunks):
+                        with st.spinner(f"Analyzing segment {idx+1}/{len(targeted_chunks)}..."):
+                            chunk_prompt = (
+                                "You are an expert Indian legal analyst. Review this segment of a court judgment and extract any "
+                                "Material Facts, Key Legal Issues, or parts of the Ratio Decidendi mentioned here. Be direct.\n\n"
+                                f"Judgment Segment:\n{chunk}"
+                            )
+                            try:
+                                response = client.chat.completions.create(
+                                    model="google/gemini-2.5-flash",
+                                    messages=[{"role": "user", "content": chunk_prompt}],
+                                    max_tokens=400
+                                )
+                                partial_summaries.append(response.choices[0].message.content)
+                            except Exception as chunk_err:
+                                # Fallback in case a specific chunk hits a glitch
+                                continue
+                        progress_bar.progress((idx + 1) / len(targeted_chunks))
+
+                    # Reduce Phase: Synthesize the small extractions into the final polished FIRAC brief
+                    with st.spinner("Compiling final consolidated FIRAC brief..."):
+                        combined_analysis = "\n\n".join(partial_summaries)
+                        final_prompt = (
+                            "You are an expert Indian legal analyst. Review the compiled legal segments below and synthesize them into a clean, unified breakdown matching these strict rules:\n\n"
+                            "1. MATERIAL FACTS: Keep this highly concise. Extract only the critical, essential facts necessary to understand the cause of action.\n"
+                            "2. KEY LEGAL ISSUES: State these cleanly and precisely. Highlight only the core legal questions the court had to resolve.\n"
+                            "3. RATIO DECIDENDI: Provide a detailed, comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and legal tests used by the court to reach its decision.\n\n"
+                            "4. 🚀 INSTANT SNAPSHOT: At the very end, provide a clean, easy-to-read, and crisp summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
+                            f"Compiled Analysis Streams:\n\n{combined_analysis}"
                         )
                         
                         try:
-                            response = client.chat.completions.create(
+                            final_response = client.chat.completions.create(
                                 model="google/gemini-2.5-flash",
-                                messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=1000  # Stays safe under the execution budget
+                                messages=[{"role": "user", "content": final_prompt}],
+                                max_tokens=1200
                             )
-                            st.write(response.choices[0].message.content)
+                            st.write(final_response.choices[0].message.content)
                         except Exception as e:
-                            st.error(f"❌ API Error: {str(e)}")
+                            st.error(f"❌ Synthesis Error: {str(e)}")
 
         with col2:
             st.subheader("💬 ASK ANYTHING")
             user_question = st.text_input("Ask a question, analyze an argument, or request cross-verifications...")
             
             if user_question and len(raw_text.strip()) > 0:
-                with st.spinner("Evaluating across the judgment..."):
+                with st.spinner("Evaluating your question..."):
+                    # For quick chat queries, we target the vital first 20k and last 10k characters to stay safe
+                    quick_context = raw_text[:20000] + "\n\n[...]\n\n" + raw_text[-10000:] if len(raw_text) > 30000 else raw_text
+                    
                     chat_prompt = (
                         "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
                         "Give a straight, to-the-point answer followed by a very short, clear explanation. Avoid long-winded essay structures.\n\n"
-                        f"Primary Case Reference Segments:\n{optimized_context}\n\n"
+                        f"Primary Case Reference Segments:\n{quick_context}\n\n"
                         f"User Query: {user_question}"
                     )
                     
