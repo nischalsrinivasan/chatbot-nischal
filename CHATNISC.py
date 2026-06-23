@@ -1,6 +1,6 @@
 import streamlit as st
 import pdfplumber
-import pypdfum2 as pdfium
+import pypdfium2 as pdfium
 from openai import OpenAI
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
@@ -16,21 +16,20 @@ with st.sidebar:
 if uploaded_file:
     raw_text = ""
     
-    # Strategy 1: Attempt deep native text extraction
+    # Try native text extraction first
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             if text:
                 raw_text += text + "\n"
                 
-    # Strategy 2: If native text fails (scanned document), use OCR/image layout parsing fallback
+    # Fallback to layout character mapping if native extraction returns nothing (scanned image PDFs)
     if len(raw_text.strip()) < 100:
         st.sidebar.warning("⚠️ Scrambled or scanned PDF detected. Activating layout OCR fallback...")
         raw_text = ""
         uploaded_file.seek(0)
         doc = pdfium.PdfDocument(uploaded_file.read())
         for page in doc:
-            # Fallback extracts text characters straight from raw layout pixel layers
             textpage = page.get_textpage()
             text = textpage.get_text_bounded()
             if text:
@@ -50,7 +49,7 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
-        # High-capacity character allocation mapping (optimized to stay well below dynamic rate ceilings)
+        # High-capacity character allocation mapping to fit unthrottled context limits cleanly
         if total_chars > 32000:
             optimized_context = raw_text[:22000] + "\n\n[... DOCUMENT SEGMENT COMBINED ...]\n\n" + raw_text[-10000:]
         else:
@@ -76,7 +75,7 @@ if uploaded_file:
                         
                         try:
                             response = client.chat.completions.create(
-                                model="meta-llama/llama-3.3-70b-instruct:free", # Fast, massive context open weights engine
+                                model="meta-llama/llama-3.3-70b-instruct:free",
                                 messages=[{"role": "user", "content": full_prompt}],
                                 max_tokens=1000
                             )
@@ -99,7 +98,7 @@ if uploaded_file:
                     
                     try:
                         chat_response = client.chat.completions.create(
-                            model="meta-llama/llama-3.3-70b-instruct:free", # Runs at high speed on OpenRouter edge nodes
+                            model="meta-llama/llama-3.3-70b-instruct:free",
                             messages=[{"role": "user", "content": chat_prompt}],
                             max_tokens=400
                         )
