@@ -39,11 +39,9 @@ if uploaded_file:
                 if len(raw_text.strip()) == 0:
                     st.warning("Cannot analyze an empty text extraction.")
                 else:
-                    # Slicing the document into bite-sized chunks to permanently bypass token limits
                     chunk_size = 8000
                     chunks = [raw_text[i:i+chunk_size] for i in range(0, len(raw_text), chunk_size)]
                     
-                    # Target critical beginning and ending segments to maximize precision
                     if len(chunks) > 6:
                         targeted_chunks = chunks[:4] + chunks[-2:]
                     else:
@@ -58,14 +56,14 @@ if uploaded_file:
                         with st.spinner(f"Analyzing segment {idx+1}/{len(targeted_chunks)}..."):
                             chunk_prompt = (
                                 "You are an expert Indian legal analyst. Review this segment of a court judgment and extract any "
-                                "Material Facts, Key Legal Issues, or parts of the Ratio Decidendi mentioned here. Be direct.\n\n"
+                                "Material Facts, Key Legal Issues, or parts of the Ratio Decidendi mentioned here. Be direct.\n"
                                 f"Judgment Segment:\n{chunk}"
                             )
                             try:
                                 response = client.chat.completions.create(
-                                    model="meta-llama/llama-3-8b-instruct:free", # Swapped to high-bandwidth unthrottled free core
+                                    model="openrouter/free", # Ever-live unified free tier router endpoint
                                     messages=[{"role": "user", "content": chunk_prompt}],
-                                    max_tokens=300
+                                    max_tokens=250
                                 )
                                 partial_summaries.append(response.choices[0].message.content)
                             except Exception as chunk_err:
@@ -86,9 +84,9 @@ if uploaded_file:
                         
                         try:
                             final_response = client.chat.completions.create(
-                                model="meta-llama/llama-3-8b-instruct:free", # Bypasses paid or credit capped tokens entirely
+                                model="openrouter/free", # Stable free routing mapping
                                 messages=[{"role": "user", "content": final_prompt}],
-                                max_tokens=800
+                                max_tokens=750 # Safeguarded token window size for congestion periods
                             )
                             st.write(final_response.choices[0].message.content)
                         except Exception as e:
@@ -111,9 +109,9 @@ if uploaded_file:
                     
                     try:
                         chat_response = client.chat.completions.create(
-                            model="meta-llama/llama-3-8b-instruct:free",
+                            model="openrouter/free",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=400
+                            max_tokens=350
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
