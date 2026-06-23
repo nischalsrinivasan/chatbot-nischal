@@ -58,7 +58,7 @@ if uploaded_file:
                             response = client.chat.completions.create(
                                 model="google/gemini-2.5-flash",
                                 messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=3000 # Maxed out token ceiling to guarantee complete generation
+                                max_tokens=3000 # Unchanged deep generation limit
                             )
                             st.write(response.choices[0].message.content)
                         except Exception as e:
@@ -70,11 +70,10 @@ if uploaded_file:
             
             if user_question and len(raw_text.strip()) > 0:
                 with st.spinner("Evaluating across the judgment..."):
+                    # Prompt rewritten to demand brief, to-the-point output
                     chat_prompt = (
-                        "You are an expert AI Legal Consultant. Use the provided case text segments below as your primary baseline authority. "
-                        "If the user asks questions extending beyond the text, or queries general legal concepts, doctrines, "
-                        "or case strategy, deploy your entire legal knowledge base and brain to thoroughly answer and assist them.\n"
-                        "Provide a complete, detailed response without truncation.\n\n"
+                        "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
+                        "Give a straight, to-the-point answer followed by a very short, clear explanation. Avoid long-winded essay structures.\n\n"
                         f"Primary Case Reference Segments:\n{optimized_context}\n\n"
                         f"User Query: {user_question}"
                     )
@@ -83,7 +82,7 @@ if uploaded_file:
                         chat_response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=2500 # Scaled token window to handle deep conversational responses completely
+                            max_tokens=600 # Dropped token window to force lightning-fast, concise execution
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
