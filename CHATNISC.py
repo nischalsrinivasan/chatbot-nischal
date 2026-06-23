@@ -1,6 +1,6 @@
 import streamlit as st
 from pypdf import PdfReader
-from google import genai
+import google.generativeai as genai
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
@@ -25,8 +25,8 @@ if uploaded_file:
     if "GEMINI_API_KEY" not in st.secrets:
         st.error("Missing configuration: Please add your GEMINI_API_KEY to your Streamlit App Secrets.")
     else:
-        # Initialize the modern SDK Client
-        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # Configuring the core library block
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
         col1, col2 = st.columns(2)
 
@@ -34,7 +34,6 @@ if uploaded_file:
             st.subheader("📋 Core FIRAC Brief")
             if st.button("✨ Extract Facts, Issues & Ratio"):
                 with st.spinner("Gemini is analyzing the judgment..."):
-                    # Safeguard 1: Safe 30k text limit
                     short_text = raw_text[:30000]
                     
                     full_prompt = (
@@ -43,12 +42,10 @@ if uploaded_file:
                         f"Case text:\n\n{short_text}"
                     )
                     
-                    # Safeguard 2: Catch explicit errors instead of crashing with a red box
                     try:
-                        response = client.models.generate_content(
-                            model='gemini-2.0-flash',  # Universally supported model name
-                            contents=full_prompt
-                        )
+                        # Swapped to the active free tier model instance
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        response = model.generate_content(full_prompt)
                         st.write(response.text)
                     except Exception as e:
                         st.error(f"❌ Gemini API Error: {str(e)}")
@@ -67,20 +64,10 @@ if uploaded_file:
                     )
                     
                     try:
-                        chat_response = client.models.generate_content(
-                            model='gemini-2.5-flash',
-                            contents=chat_prompt
-                        )
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        chat_response = model.generate_content(chat_prompt)
                         st.info(chat_response.text)
-                    except Exception as e:
-                        # Fallback try using the 2.0 engine if 2.5 fails
-                        try:
-                            chat_response = client.models.generate_content(
-                                model='gemini-2.0-flash',
-                                contents=chat_prompt
-                            )
-                            st.info(chat_response.text)
-                        except Exception as inner_e:
-                            st.error(f"❌ Gemini API Error: {str(inner_e)}")
+                    except Exception as inner_e:
+                        st.error(f"❌ Gemini API Error: {str(inner_e)}")
 else:
     st.info("👈 Please upload a legal PDF in the sidebar to get started!")
