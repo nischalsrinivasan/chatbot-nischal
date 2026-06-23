@@ -25,7 +25,7 @@ if uploaded_file:
     if "GEMINI_API_KEY" not in st.secrets:
         st.error("Please add your GEMINI_API_KEY to your Streamlit App Secrets.")
     else:
-        # Configuring the core library directly to handle the new AQ format securely
+        # Configure the key structure
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
         col1, col2 = st.columns(2)
@@ -34,7 +34,8 @@ if uploaded_file:
             st.subheader("📋 Core FIRAC Brief")
             if st.button("✨ Extract Facts, Issues & Ratio"):
                 with st.spinner("Gemini is analyzing the judgment..."):
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    # Updated to the fully supported 2.5 architecture
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     response = model.generate_content(
                         f"You are an expert Indian legal analyst. Analyze the provided court judgment text and precisely extract: 1. Material Facts, 2. Key Legal Issues, 3. Ratio Decidendi. Rely strictly on the text provided.\n\nCase text:\n\n{raw_text[:100000]}"
                     )
@@ -46,7 +47,7 @@ if uploaded_file:
             
             if user_question:
                 with st.spinner("Searching document..."):
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     chat_response = model.generate_content(
                         f"Answer the user's question using ONLY the following case text. If the answer is not mentioned, say 'I cannot find that in the judgment.'\n\nCase Text:\n{raw_text[:100000]}\n\nQuestion: {user_question}"
                     )
