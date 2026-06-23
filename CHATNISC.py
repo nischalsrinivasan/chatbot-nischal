@@ -1,12 +1,11 @@
 import streamlit as st
 from pypdf import PdfReader
-import requests
-import json
+from openai import OpenAI
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment using Google Gemini via OpenRouter.")
+st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment seamlessly.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -26,19 +25,18 @@ if uploaded_file:
     if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("Missing configuration: Please add your OPENROUTER_API_KEY to your Streamlit App Secrets.")
     else:
-        # Configuration for the OpenRouter universal connection endpoint
-        headers = {
-            "Authorization": f"Bearer {st.secrets['OPENROUTER_API_KEY']}",
-            "Content-Type": "application/json"
-        }
+        # Utilizing the robust OpenAI SDK structure routed via OpenRouter
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=st.secrets["OPENROUTER_API_KEY"],
+        )
 
         col1, col2 = st.columns(2)
 
         with col1:
             st.subheader("📋 Core FIRAC Brief")
             if st.button("✨ Extract Facts, Issues & Ratio"):
-                with st.spinner("Gemini is analyzing the judgment..."):
-                    # Slice text safely for optimized context balance
+                with st.spinner("Analyzing the judgment..."):
                     short_text = raw_text[:40000]
                     
                     full_prompt = (
@@ -47,21 +45,14 @@ if uploaded_file:
                         f"Case text:\n\n{short_text}"
                     )
                     
-                    data = {
-                        "model": "google/gemini-2.5-flash",
-                        "messages": [{"role": "user", "content": full_prompt}]
-                    }
-                    
                     try:
-                        response = requests.post(
-                            "https://openrouter.ai/api/v1/chat/completions",
-                            headers=headers,
-                            data=json.dumps(data)
+                        response = client.chat.completions.create(
+                            model="google/gemini-2.5-flash",
+                            messages=[{"role": "user", "content": full_prompt}]
                         )
-                        res_json = response.json()
-                        st.write(res_json['choices'][0]['message']['content'])
+                        st.write(response.choices[0].message.content)
                     except Exception as e:
-                        st.error(f"❌ Connection Error: {str(e)}")
+                        st.error(f"❌ API Error: {str(e)}")
 
         with col2:
             st.subheader("💬 Ask Anything About This Case")
@@ -76,20 +67,13 @@ if uploaded_file:
                         f"Question: {user_question}"
                     )
                     
-                    data = {
-                        "model": "google/gemini-2.5-flash",
-                        "messages": [{"role": "user", "content": chat_prompt}]
-                    }
-                    
                     try:
-                        chat_response = requests.post(
-                            "https://openrouter.ai/api/v1/chat/completions",
-                            headers=headers,
-                            data=json.dumps(data)
+                        chat_response = client.chat.completions.create(
+                            model="google/gemini-2.5-flash",
+                            messages=[{"role": "user", "content": chat_prompt}]
                         )
-                        res_chat_json = chat_response.json()
-                        st.info(res_chat_json['choices'][0]['message']['content'])
+                        st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
-                        st.error(f"❌ Connection Error: {str(inner_e)}")
+                        st.error(f"❌ API Error: {str(inner_e)}")
 else:
     st.info("👈 Please upload a legal PDF in the sidebar to get started!")
