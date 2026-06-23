@@ -7,12 +7,14 @@ st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="
 st.title("⚖️ Nischal's Chat Bot")
 st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment completely for free.")
 
+# Sidebar for file uploads
 with st.sidebar:
     st.header("Upload Center")
     uploaded_file = st.file_uploader("Upload Case Judgment (PDF)", type="pdf")
 
 if uploaded_file:
     raw_text = ""
+    # Extracting high-fidelity text streams layout by layout
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
@@ -20,7 +22,7 @@ if uploaded_file:
                 raw_text += text + "\n"
                 
     if len(raw_text.strip()) == 0:
-        st.sidebar.error("⚠️ This PDF appears to be a raw image scan. Text extraction returned nothing.")
+        st.sidebar.error("⚠️ This PDF appears to be an unreadable image scan.")
     else:
         st.sidebar.success(f"Successfully loaded document text!")
 
@@ -41,6 +43,7 @@ if uploaded_file:
                     st.warning("Cannot analyze an empty text extraction.")
                 else:
                     with st.spinner("Analyzing the judgment..."):
+                        # Safe token window boundaries
                         short_text = raw_text[:12000]
                         
                         full_prompt = (
@@ -51,9 +54,9 @@ if uploaded_file:
                         
                         try:
                             response = client.chat.completions.create(
-                                model="openrouter/free",
+                                model="google/gemini-2.5-flash",  # Enforces targeted free-tier Gemini engine
                                 messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=800
+                                max_tokens=1000
                             )
                             st.write(response.choices[0].message.content)
                         except Exception as e:
@@ -74,9 +77,9 @@ if uploaded_file:
                     
                     try:
                         chat_response = client.chat.completions.create(
-                            model="openrouter/free",
+                            model="google/gemini-2.5-flash",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=800
+                            max_tokens=1000
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
