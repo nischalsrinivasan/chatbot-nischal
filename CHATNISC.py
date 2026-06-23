@@ -43,7 +43,7 @@ if uploaded_file:
                     chunk_size = 8000
                     chunks = [raw_text[i:i+chunk_size] for i in range(0, len(raw_text), chunk_size)]
                     
-                    # If the document is massive, we optimize by analyzing the first 4 chunks and last 2 chunks
+                    # Target critical beginning and ending segments to maximize precision
                     if len(chunks) > 6:
                         targeted_chunks = chunks[:4] + chunks[-2:]
                     else:
@@ -51,9 +51,9 @@ if uploaded_file:
 
                     partial_summaries = []
                     progress_bar = st.progress(0)
-                    st.info(f"Processing case layout safely in {len(targeted_chunks)} optimized segments...")
+                    st.info(f"Processing case layout safely in {len(targeted_chunks)} segments...")
 
-                    # Map Phase: Extract core elements from each section individually
+                    # Map Phase
                     for idx, chunk in enumerate(targeted_chunks):
                         with st.spinner(f"Analyzing segment {idx+1}/{len(targeted_chunks)}..."):
                             chunk_prompt = (
@@ -63,17 +63,16 @@ if uploaded_file:
                             )
                             try:
                                 response = client.chat.completions.create(
-                                    model="google/gemini-2.5-flash",
+                                    model="meta-llama/llama-3-8b-instruct:free", # Swapped to high-bandwidth unthrottled free core
                                     messages=[{"role": "user", "content": chunk_prompt}],
-                                    max_tokens=400
+                                    max_tokens=300
                                 )
                                 partial_summaries.append(response.choices[0].message.content)
                             except Exception as chunk_err:
-                                # Fallback in case a specific chunk hits a glitch
                                 continue
                         progress_bar.progress((idx + 1) / len(targeted_chunks))
 
-                    # Reduce Phase: Synthesize the small extractions into the final polished FIRAC brief
+                    # Reduce Phase
                     with st.spinner("Compiling final consolidated FIRAC brief..."):
                         combined_analysis = "\n\n".join(partial_summaries)
                         final_prompt = (
@@ -87,9 +86,9 @@ if uploaded_file:
                         
                         try:
                             final_response = client.chat.completions.create(
-                                model="google/gemini-2.5-flash",
+                                model="meta-llama/llama-3-8b-instruct:free", # Bypasses paid or credit capped tokens entirely
                                 messages=[{"role": "user", "content": final_prompt}],
-                                max_tokens=1200
+                                max_tokens=800
                             )
                             st.write(final_response.choices[0].message.content)
                         except Exception as e:
@@ -101,7 +100,6 @@ if uploaded_file:
             
             if user_question and len(raw_text.strip()) > 0:
                 with st.spinner("Evaluating your question..."):
-                    # For quick chat queries, we target the vital first 20k and last 10k characters to stay safe
                     quick_context = raw_text[:20000] + "\n\n[...]\n\n" + raw_text[-10000:] if len(raw_text) > 30000 else raw_text
                     
                     chat_prompt = (
@@ -113,7 +111,7 @@ if uploaded_file:
                     
                     try:
                         chat_response = client.chat.completions.create(
-                            model="google/gemini-2.5-flash",
+                            model="meta-llama/llama-3-8b-instruct:free",
                             messages=[{"role": "user", "content": chat_prompt}],
                             max_tokens=400
                         )
