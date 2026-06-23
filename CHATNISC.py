@@ -43,8 +43,8 @@ if uploaded_file:
                     )
                     
                     try:
-                        # Swapped to the active free tier model instance
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        # Fixed target string to active 2.5 architecture
+                        model = genai.GenerativeModel('gemini-2.5-flash')
                         response = model.generate_content(full_prompt)
                         st.write(response.text)
                     except Exception as e:
@@ -64,7 +64,7 @@ if uploaded_file:
                     )
                     
                     try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        model = genai.GenerativeModel('gemini-2.5-flash')
                         chat_response = model.generate_content(chat_prompt)
                         st.info(chat_response.text)
                     except Exception as inner_e:
