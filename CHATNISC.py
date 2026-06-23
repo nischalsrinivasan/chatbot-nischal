@@ -25,7 +25,6 @@ if uploaded_file:
     if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("Missing configuration: Please add your OPENROUTER_API_KEY to your Streamlit App Secrets.")
     else:
-        # Utilizing the robust OpenAI SDK structure routed via OpenRouter
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=st.secrets["OPENROUTER_API_KEY"],
@@ -37,7 +36,8 @@ if uploaded_file:
             st.subheader("📋 Core FIRAC Brief")
             if st.button("✨ Extract Facts, Issues & Ratio"):
                 with st.spinner("Analyzing the judgment..."):
-                    short_text = raw_text[:40000]
+                    # Trimmed text context slightly to fit comfortably within the 16,000 token limit
+                    short_text = raw_text[:15000]
                     
                     full_prompt = (
                         "You are an expert Indian legal analyst. Analyze the provided court judgment text and precisely extract: "
@@ -48,7 +48,8 @@ if uploaded_file:
                     try:
                         response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
-                            messages=[{"role": "user", "content": full_prompt}]
+                            messages=[{"role": "user", "content": full_prompt}],
+                            max_tokens=1000 # Explicitly caps token requests to satisfy the free tier constraint
                         )
                         st.write(response.choices[0].message.content)
                     except Exception as e:
@@ -60,7 +61,7 @@ if uploaded_file:
             
             if user_question:
                 with st.spinner("Searching document..."):
-                    short_text = raw_text[:40000]
+                    short_text = raw_text[:15000]
                     chat_prompt = (
                         f"Answer the user's question using ONLY the following case text. If the answer is not mentioned, say 'I cannot find that in the judgment.'\n\n"
                         f"Case Text:\n{short_text}\n\n"
@@ -70,7 +71,8 @@ if uploaded_file:
                     try:
                         chat_response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
-                            messages=[{"role": "user", "content": chat_prompt}]
+                            messages=[{"role": "user", "content": chat_prompt}],
+                            max_tokens=1000 # Explicitly caps token requests to satisfy the free tier constraint
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
