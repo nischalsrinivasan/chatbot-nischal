@@ -5,7 +5,7 @@ from openai import OpenAI
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment completely for free.")
+st.write("Analyze massive 100+ page judgments, extract crisp summaries, and consult with an uncaged legal AI assistant.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -14,17 +14,14 @@ with st.sidebar:
 
 if uploaded_file:
     raw_text = ""
-    # Extracting high-fidelity text streams layout by layout
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
             if text:
                 raw_text += text + "\n"
                 
-    if len(raw_text.strip()) == 0:
-        st.sidebar.error("⚠️ This PDF appears to be an unreadable image scan.")
-    else:
-        st.sidebar.success(f"Successfully loaded document text!")
+    total_chars = len(raw_text)
+    st.sidebar.success(f"Successfully loaded {len(pdf.pages)} pages ({total_chars} characters)!")
 
     if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("Missing configuration: Please add your OPENROUTER_API_KEY to your Streamlit App Secrets.")
@@ -34,52 +31,59 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
+        # Smart structural context extraction for 100+ page cases
+        if total_chars > 160000:
+            # Grab the critical beginning (Facts/Issues) and the essential conclusion (Ratio/Holding)
+            optimized_context = raw_text[:120000] + "\n\n[... DOCUMENT TRUNCATED FOR CONTEXT OPTIMIZATION ...]\n\n" + raw_text[-40000:]
+        else:
+            optimized_context = raw_text
+
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("📋 Core FIRAC Brief")
+            st.subheader("📋 Comprehensive FIRAC Brief & Snapshot")
             if st.button("✨ Extract Facts, Issues & Ratio"):
                 if len(raw_text.strip()) == 0:
                     st.warning("Cannot analyze an empty text extraction.")
                 else:
-                    with st.spinner("Analyzing the judgment..."):
-                        # Safe token window boundaries
-                        short_text = raw_text[:12000]
-                        
+                    with st.spinner("Processing deep case structure..."):
                         full_prompt = (
-                            "You are an expert Indian legal analyst. Analyze the provided court judgment text and precisely extract: "
-                            "1. Material Facts, 2. Key Legal Issues, 3. Ratio Decidendi. Rely strictly on the text provided.\n\n"
-                            f"Case text:\n\n{short_text}"
+                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and perform two tasks:\n"
+                            "1. Provide a highly detailed analysis extracting: Material Facts, Key Legal Issues, and Ratio Decidendi.\n"
+                            "2. At the very end, add a distinct section titled '🚀 INSTANT SNAPSHOT' containing an ultra-short, "
+                            "one-sentence summary covering the absolute essence of the Facts, Issues, and Ratio. Cover all material elements.\n\n"
+                            f"Case text segments:\n\n{optimized_context}"
                         )
                         
                         try:
                             response = client.chat.completions.create(
-                                model="google/gemini-2.5-flash",  # Enforces targeted free-tier Gemini engine
+                                model="google/gemini-2.5-flash",
                                 messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=1000
+                                max_tokens=1800
                             )
                             st.write(response.choices[0].message.content)
                         except Exception as e:
                             st.error(f"❌ API Error: {str(e)}")
 
         with col2:
-            st.subheader("💬 Ask Anything About This Case")
-            user_question = st.text_input("Ask a specific question...")
+            st.subheader("💬 Legal AI Consultant (Full Brain Active)")
+            user_question = st.text_input("Ask a question, analyze an argument, or request cross-verifications...")
             
             if user_question and len(raw_text.strip()) > 0:
-                with st.spinner("Searching document..."):
-                    short_text = raw_text[:12000]
+                with st.spinner("Evaluating across the judgment..."):
                     chat_prompt = (
-                        f"Answer the user's question using ONLY the following case text. If the answer is not mentioned, say 'I cannot find that in the judgment.'\n\n"
-                        f"Case Text:\n{short_text}\n\n"
-                        f"Question: {user_question}"
+                        "You are an expert AI Legal Consultant. Use the provided case text segments below as your primary baseline authority. "
+                        "If the user asks questions extending beyond the text, or queries general legal concepts, doctrines, "
+                        "or case strategy, deploy your entire legal knowledge base and brain to thoroughly answer and assist them.\n\n"
+                        f"Primary Case Reference Segments:\n{optimized_context}\n\n"
+                        f"User Query: {user_question}"
                     )
                     
                     try:
                         chat_response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=1000
+                            max_tokens=1200
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
