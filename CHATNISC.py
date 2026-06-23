@@ -4,7 +4,7 @@ from google import genai
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
-st.title("⚖️ Nischal's Chat Bot (Free Edition)")
+st.title("⚖️ Nischal's Chat Bot")
 st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment using Google Gemini.")
 
 # Sidebar for file uploads
@@ -25,7 +25,7 @@ if uploaded_file:
 
     # Check if we have the Gemini API Key configured in Streamlit secrets
     if "GEMINI_API_KEY" not in st.secrets:
-        st.error("Please add your GEMINI_API_KEY to your Streamlit App Secrets to use the free AI features.")
+        st.error("Please add your GEMINI_API_KEY to your Streamlit App Secrets.")
     else:
         # Initialize the Google GenAI client
         client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
