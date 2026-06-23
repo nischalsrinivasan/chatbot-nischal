@@ -47,10 +47,11 @@ if uploaded_file:
                 else:
                     with st.spinner("Processing deep case structure..."):
                         full_prompt = (
-                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and perform two tasks:\n"
-                            "1. Provide a highly detailed, comprehensive analysis extracting: Material Facts, Key Legal Issues, and Ratio Decidendi. Do not cut off early.\n"
-                            "2. At the very end, add a distinct section titled '🚀 INSTANT SNAPSHOT' containing an ultra-short, "
-                            "one-sentence summary covering the absolute essence of the Facts, Issues, and Ratio. Cover all material elements.\n\n"
+                            "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and provide a structured breakdown strictly adhering to these length constraints:\n\n"
+                            "1. MATERIAL FACTS: Keep this highly concise. Extract only the critical, essential facts necessary to understand the cause of action. Skip any background or administrative filler.\n"
+                            "2. KEY LEGAL ISSUES: State these cleanly and precisely. Highlight only the core legal questions the court had to resolve, without long-winded setup text.\n"
+                            "3. RATIO DECIDENDI: Provide a highly detailed, comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and any legal tests used by the court to reach its decision. Do not cut this part short.\n\n"
+                            "4. 🚀 INSTANT SNAPSHOT: At the very end, provide a clean, easy-to-read, and crisp summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences. Make it simple and clear to digest immediately.\n\n"
                             f"Case text segments:\n\n{optimized_context}"
                         )
                         
@@ -58,7 +59,7 @@ if uploaded_file:
                             response = client.chat.completions.create(
                                 model="google/gemini-2.5-flash",
                                 messages=[{"role": "user", "content": full_prompt}],
-                                max_tokens=3000 # Unchanged deep generation limit
+                                max_tokens=3000
                             )
                             st.write(response.choices[0].message.content)
                         except Exception as e:
@@ -70,7 +71,6 @@ if uploaded_file:
             
             if user_question and len(raw_text.strip()) > 0:
                 with st.spinner("Evaluating across the judgment..."):
-                    # Prompt rewritten to demand brief, to-the-point output
                     chat_prompt = (
                         "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
                         "Give a straight, to-the-point answer followed by a very short, clear explanation. Avoid long-winded essay structures.\n\n"
@@ -82,7 +82,7 @@ if uploaded_file:
                         chat_response = client.chat.completions.create(
                             model="google/gemini-2.5-flash",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=600 # Dropped token window to force lightning-fast, concise execution
+                            max_tokens=600
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
