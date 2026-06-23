@@ -1,6 +1,6 @@
 import streamlit as st
 from pypdf import PdfReader
-from google import genai
+import google.generativeai as genai
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
@@ -13,7 +13,6 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Case Judgment (PDF)", type="pdf")
 
 if uploaded_file:
-    # Read text from PDF instantly
     reader = PdfReader(uploaded_file)
     raw_text = ""
     for page in reader.pages:
@@ -23,26 +22,21 @@ if uploaded_file:
         
     st.sidebar.success(f"Successfully loaded {len(reader.pages)} pages!")
 
-    # Check if we have the Gemini API Key configured in Streamlit secrets
     if "GEMINI_API_KEY" not in st.secrets:
         st.error("Please add your GEMINI_API_KEY to your Streamlit App Secrets.")
     else:
-        # Initialize the Google GenAI client
-        client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+        # Configuring the core library directly to handle the new AQ format securely
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-        # Split screen into two columns
         col1, col2 = st.columns(2)
 
         with col1:
             st.subheader("📋 Core FIRAC Brief")
             if st.button("✨ Extract Facts, Issues & Ratio"):
                 with st.spinner("Gemini is analyzing the judgment..."):
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[
-                            "You are an expert Indian legal analyst. Analyze the provided court judgment text and precisely extract: 1. Material Facts, 2. Key Legal Issues, 3. Ratio Decidendi. Rely strictly on the text provided.",
-                            f"Case text:\n\n{raw_text[:100000]}"
-                        ]
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(
+                        f"You are an expert Indian legal analyst. Analyze the provided court judgment text and precisely extract: 1. Material Facts, 2. Key Legal Issues, 3. Ratio Decidendi. Rely strictly on the text provided.\n\nCase text:\n\n{raw_text[:100000]}"
                     )
                     st.write(response.text)
 
@@ -52,12 +46,9 @@ if uploaded_file:
             
             if user_question:
                 with st.spinner("Searching document..."):
-                    chat_response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[
-                            f"Answer the user's question using ONLY the following case text. If the answer is not mentioned, say 'I cannot find that in the judgment.'\n\nCase Text:\n{raw_text[:100000]}",
-                            f"Question: {user_question}"
-                        ]
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    chat_response = model.generate_content(
+                        f"Answer the user's question using ONLY the following case text. If the answer is not mentioned, say 'I cannot find that in the judgment.'\n\nCase Text:\n{raw_text[:100000]}\n\nQuestion: {user_question}"
                     )
                     st.info(chat_response.text)
 else:
