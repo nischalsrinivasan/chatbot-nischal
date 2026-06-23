@@ -7,14 +7,12 @@ st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="
 st.title("⚖️ Nischal's Chat Bot")
 st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment completely for free.")
 
-# Sidebar for file uploads
 with st.sidebar:
     st.header("Upload Center")
     uploaded_file = st.file_uploader("Upload Case Judgment (PDF)", type="pdf")
 
 if uploaded_file:
     raw_text = ""
-    # Open the PDF using pdfplumber to bypass scrambled fonts and layout bugs
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
             text = page.extract_text()
