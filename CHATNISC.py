@@ -1,11 +1,12 @@
 import streamlit as st
 from pypdf import PdfReader
-import google.generativeai as genai
+import requests
+import json
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment using Google Gemini.")
+st.write("Analyze case PDFs to extract FIRAC summary points and chat with the judgment using Google Gemini via OpenRouter.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -22,11 +23,14 @@ if uploaded_file:
         
     st.sidebar.success(f"Successfully loaded {len(reader.pages)} pages!")
 
-    if "GEMINI_API_KEY" not in st.secrets:
-        st.error("Missing configuration: Please add your GEMINI_API_KEY to your Streamlit App Secrets.")
+    if "OPENROUTER_API_KEY" not in st.secrets:
+        st.error("Missing configuration: Please add your OPENROUTER_API_KEY to your Streamlit App Secrets.")
     else:
-        # Configuring the core library block
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        # Configuration for the OpenRouter universal connection endpoint
+        headers = {
+            "Authorization": f"Bearer {st.secrets['OPENROUTER_API_KEY']}",
+            "Content-Type": "application/json"
+        }
 
         col1, col2 = st.columns(2)
 
@@ -34,7 +38,8 @@ if uploaded_file:
             st.subheader("📋 Core FIRAC Brief")
             if st.button("✨ Extract Facts, Issues & Ratio"):
                 with st.spinner("Gemini is analyzing the judgment..."):
-                    short_text = raw_text[:30000]
+                    # Slice text safely for optimized context balance
+                    short_text = raw_text[:40000]
                     
                     full_prompt = (
                         "You are an expert Indian legal analyst. Analyze the provided court judgment text and precisely extract: "
@@ -42,13 +47,21 @@ if uploaded_file:
                         f"Case text:\n\n{short_text}"
                     )
                     
+                    data = {
+                        "model": "google/gemini-2.5-flash",
+                        "messages": [{"role": "user", "content": full_prompt}]
+                    }
+                    
                     try:
-                        # Fixed target string to active 2.5 architecture
-                        model = genai.GenerativeModel('gemini-2.5-flash')
-                        response = model.generate_content(full_prompt)
-                        st.write(response.text)
+                        response = requests.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers=headers,
+                            data=json.dumps(data)
+                        )
+                        res_json = response.json()
+                        st.write(res_json['choices'][0]['message']['content'])
                     except Exception as e:
-                        st.error(f"❌ Gemini API Error: {str(e)}")
+                        st.error(f"❌ Connection Error: {str(e)}")
 
         with col2:
             st.subheader("💬 Ask Anything About This Case")
@@ -56,18 +69,27 @@ if uploaded_file:
             
             if user_question:
                 with st.spinner("Searching document..."):
-                    short_text = raw_text[:30000]
+                    short_text = raw_text[:40000]
                     chat_prompt = (
                         f"Answer the user's question using ONLY the following case text. If the answer is not mentioned, say 'I cannot find that in the judgment.'\n\n"
                         f"Case Text:\n{short_text}\n\n"
                         f"Question: {user_question}"
                     )
                     
+                    data = {
+                        "model": "google/gemini-2.5-flash",
+                        "messages": [{"role": "user", "content": chat_prompt}]
+                    }
+                    
                     try:
-                        model = genai.GenerativeModel('gemini-2.5-flash')
-                        chat_response = model.generate_content(chat_prompt)
-                        st.info(chat_response.text)
+                        chat_response = requests.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers=headers,
+                            data=json.dumps(data)
+                        )
+                        res_chat_json = chat_response.json()
+                        st.info(res_chat_json['choices'][0]['message']['content'])
                     except Exception as inner_e:
-                        st.error(f"❌ Gemini API Error: {str(inner_e)}")
+                        st.error(f"❌ Connection Error: {str(inner_e)}")
 else:
     st.info("👈 Please upload a legal PDF in the sidebar to get started!")
