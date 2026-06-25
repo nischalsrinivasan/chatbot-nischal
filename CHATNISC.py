@@ -95,14 +95,15 @@ section[data-testid="stSidebar"] {
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Production ready high-capacity models
 FALLBACK_FREE_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",
-    "mistralai/mistral-7b-instruct:free",
+    "openai/gpt-oss-120b:free",
     "openrouter/free"
 ]
 
 # ── OpenRouter API Call ───────────────────────────────────────────────────────
-def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
+def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1500) -> str:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -126,19 +127,19 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
                 text_out = resp.json()["choices"][0]["message"]["content"].strip()
                 if text_out:
                     return text_out
-            last_err = f"Model {model} returned status {resp.status_code}"
+            last_err = f"Model {model} status {resp.status_code}: {resp.text[:100]}"
         except Exception as e:
             last_err = str(e)
             continue
             
-    raise RuntimeError(f"All free options failed. Details: {last_err}")
+    raise RuntimeError(f"All free model options failed. Trace logs: {last_err}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def clean_extracted_text(text: str) -> str:
-    """Removes non-printable characters and normalizes massive white spaces."""
+    """Cleans up bad stream encodings from the PDF layout reader."""
     printable = set(string.printable)
     cleaned = "".join(filter(lambda x: x in printable, text))
-    cleaned = re.sub(r'\s+', ' ', cleaned)  # Collapse sequential whitespace
+    cleaned = re.sub(r'[^\x20-\x7E\n\t]', '', cleaned)
     return cleaned.strip()
 
 def extract_pdf_text(file) -> tuple[str, int]:
@@ -148,10 +149,9 @@ def extract_pdf_text(file) -> tuple[str, int]:
     
     for i in range(pages):
         page = doc[i]
-        page_text = page.get_text("text") # Fallback layout reader
-        if len(page_text.strip()) < 50:
-            # Try block layout if regular text comes back nearly empty
-            page_text = "\n".join([b[4] for b in page.get_text("blocks") if isinstance(b[4], str)])
+        # Using layout blocks processing to extract clean textual chunks
+        blocks = page.get_text("blocks")
+        page_text = "\n".join([b[4] for b in blocks if isinstance(b[4], str)])
         text_runs.append(page_text)
         
     full_raw_text = "\n".join(text_runs)
@@ -159,49 +159,52 @@ def extract_pdf_text(file) -> tuple[str, int]:
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-ANALYSIS_SYSTEM = """You are an expert legal assistant specialized in decoding court filings. 
-Analyze the provided judicial text and reconstruct a coherent case summary under the required fields. 
-Ignore artifacts, page numbers, or line noise. Write a factual summary paragraph (2 to 4 sentences) for every single label.
+ANALYSIS_SYSTEM = """You are an expert legal intelligence system. Analyze the provided case filing text and summarize the critical legal information. 
 
-CASE NAME:
-PARTIES:
-MATERIAL FACTS:
-LEGAL ISSUES:
-RATIO DECIDENDI:
-DECISION / HOLDING:
-KEY TAKEAWAY:"""
+You must output your complete analysis wrapped inside explicit HTML tags for safe processing. Extract the real context from the case file under these exact tags:
+
+<casename>Provide the clear name of the case or filing title here</casename>
+<parties>Identify all named plaintiffs, appellants, defendants, or respondents involved</parties>
+<facts>Summarize the core factual background, event history, and core dispute details</facts>
+<issues>Detail the main points of law or constitutional questions the court must resolve</issues>
+<ratio>Explain the primary legal rationale, principles, or precedents applied by the judges</ratio>
+<holding>State the exact final ruling, decree, order, or judgment delivered</holding>
+<takeaway>State the key legal significance or future practice impact of this case</takeaway>
+
+Provide thorough analytical summaries for each item. Do not leave fields empty or write refusal statements."""
 
 CHAT_SYSTEM = """You are a sharp legal assistant helping a user understand a specific legal document.
 Answer questions clearly and concisely — 2 to 5 sentences maximum.
 Do not repeat the question. Get straight to the point. Do not make up facts not in the document."""
 
 
-# ── Parse analysis output with Flexible Regex ─────────────────────────────────
+# ── Parse Tagged Analysis Output ──────────────────────────────────────────────
 def parse_analysis(raw: str) -> dict:
-    labels = [
-        "CASE NAME", "PARTIES", "MATERIAL FACTS",
-        "LEGAL ISSUES", "RATIO DECIDENDI", "DECISION / HOLDING", "KEY TAKEAWAY",
-    ]
+    tags = {
+        "CASE NAME": "casename",
+        "PARTIES": "parties",
+        "MATERIAL FACTS": "facts",
+        "LEGAL ISSUES": "issues",
+        "RATIO DECIDENDI": "ratio",
+        "DECISION / HOLDING": "holding",
+        "KEY TAKEAWAY": "takeaway"
+    }
     result = {}
     
-    clean_raw = raw.replace("**", "").replace("###", "").strip()
-    
-    for i, label in enumerate(labels):
-        start_match = re.search(r'(?i)' + re.escape(label) + r'\s*:?', clean_raw)
-        if start_match:
-            start_idx = start_match.end()
-            if i + 1 < len(labels):
-                next_label = labels[i + 1]
-                end_match = re.search(r'(?i)' + re.escape(next_label) + r'\s*:?', clean_raw)
-                end_idx = end_match.start() if end_match else len(clean_raw)
-            else:
-                end_idx = len(clean_raw)
-                
-            content = clean_raw[start_idx:end_idx].strip()
-            result[label] = content if content else "Summary details missing from raw model output."
+    for label, tag in tags.items():
+        pattern = rf"<{tag}>(.*?)</{tag}>"
+        match = re.search(pattern, raw, re.DOTALL | re.IGNORECASE)
+        if match:
+            result[label] = match.group(1).strip()
         else:
-            result[label] = f"Could not extract section for {label}."
-            
+            # Fallback strategy: if tags are ignored, try string split fallback logic
+            fallback_pattern = rf"(?i){label}\s*:?\s*(.*?)(?=\n\n|\n[A-Z\s]+:|$)"
+            fb_match = re.search(fallback_pattern, raw, re.DOTALL)
+            if fb_match and len(fb_match.group(1).strip()) > 10:
+                result[label] = fb_match.group(1).strip()
+            else:
+                result[label] = "Information extraction parsing anomaly. Please re-run the analysis button."
+                
     return result
 
 
@@ -238,7 +241,7 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload a PDF (max 100 pages)", type=["pdf"])
 
     if uploaded:
-        with st.spinner("Reading and Sanitizing PDF…"):
+        with st.spinner("Processing document text lines..."):
             text, pages = extract_pdf_text(uploaded)
         st.session_state.doc_text = text
         st.session_state.page_count = pages
@@ -253,13 +256,13 @@ with st.sidebar:
             if not api_key:
                 st.error("⚠️ Add OPENROUTER_API_KEY to Streamlit secrets.")
             else:
-                with st.spinner("Processing analysis..."):
+                with st.spinner("Processing analytical parsing matrix..."):
                     try:
                         raw = call_openrouter(
                             api_key,
                             system_prompt=ANALYSIS_SYSTEM,
-                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:32000]}",
-                            max_tokens=1400,
+                            user_message=f"Document Source Context for Extraction:\n\n{st.session_state.doc_text[:35000]}",
+                            max_tokens=1500,
                         )
                         st.session_state.analysis = parse_analysis(raw)
                     except Exception as e:
@@ -350,7 +353,7 @@ with col_chat:
                 with st.spinner("Thinking…"):
                     try:
                         context = st.session_state.doc_text[:18000]
-                        user_msg = f"Document:\n{context}\n\nQuestion: {question.strip()}"
+                        user_msg = f"Document Context:\n{context}\n\nQuestion: {question.strip()}"
                         answer = call_openrouter(
                             api_key,
                             system_prompt=CHAT_SYSTEM,
