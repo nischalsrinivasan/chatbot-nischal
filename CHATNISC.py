@@ -92,10 +92,17 @@ section[data-testid="stSidebar"] {
 # ── Constants ─────────────────────────────────────────────────────────────────
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-# Best FREE model on OpenRouter as of 2024 — reliable, fast, great for legal text
-FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
-# ── OpenRouter API call ───────────────────────────────────────────────────────
+# Free models tried in order - if one is rate-limited, next is used automatically
+FREE_MODELS = [
+    "mistralai/mistral-7b-instruct:free",
+    "google/gemma-3-4b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "microsoft/phi-3-mini-128k-instruct:free",
+    "qwen/qwen3-8b:free",
+]
+
+# OpenRouter API call with automatic fallback
 def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -103,20 +110,24 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
         "X-Title": "Nischal Chat Bot",
     }
-    payload = {
-        "model": FREE_MODEL,
-        "max_tokens": max_tokens,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
-    }
-    resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-    if resp.status_code != 200:
+    last_error = ""
+    for model in FREE_MODELS:
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        if resp.status_code in (429, 404):
+            last_error = f"{model} -> {resp.status_code}"
+            continue
         raise RuntimeError(f"OpenRouter error {resp.status_code}: {resp.text[:300]}")
-    data = resp.json()
-    return data["choices"][0]["message"]["content"].strip()
-
+    raise RuntimeError(f"All free models are currently busy. Try again in a minute.\nLast error: {last_error}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
