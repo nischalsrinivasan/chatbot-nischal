@@ -1,9 +1,8 @@
 import streamlit as st
 import fitz  # PyMuPDF
-import google.generativeai as genai
-import textwrap
+import requests
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Nischal Chat Bot",
     page_icon="⚖️",
@@ -21,7 +20,6 @@ html, body, [class*="css"] {
     background-color: #0f1117;
     color: #e8e8e8;
 }
-
 .main-title {
     font-family: 'EB Garamond', serif;
     font-size: 2.4rem;
@@ -30,7 +28,6 @@ html, body, [class*="css"] {
     letter-spacing: 0.02em;
     margin-bottom: 0.2rem;
 }
-
 .subtitle {
     font-size: 0.9rem;
     color: #888;
@@ -38,7 +35,6 @@ html, body, [class*="css"] {
     letter-spacing: 0.05em;
     text-transform: uppercase;
 }
-
 .card {
     background: #1a1d27;
     border: 1px solid #2a2d3a;
@@ -46,7 +42,6 @@ html, body, [class*="css"] {
     padding: 1.2rem 1.4rem;
     margin-bottom: 1rem;
 }
-
 .card-label {
     font-size: 0.72rem;
     font-weight: 600;
@@ -55,13 +50,11 @@ html, body, [class*="css"] {
     letter-spacing: 0.1em;
     margin-bottom: 0.4rem;
 }
-
 .card-content {
     font-size: 0.92rem;
     color: #d4d4d4;
     line-height: 1.65;
 }
-
 .chat-bubble-user {
     background: #1e2235;
     border-left: 3px solid #c9a84c;
@@ -70,7 +63,6 @@ html, body, [class*="css"] {
     margin: 0.5rem 0;
     font-size: 0.9rem;
 }
-
 .chat-bubble-bot {
     background: #151820;
     border-left: 3px solid #4a7c9e;
@@ -80,54 +72,54 @@ html, body, [class*="css"] {
     font-size: 0.9rem;
     color: #d4d4d4;
 }
-
-.divider {
-    border: none;
-    border-top: 1px solid #2a2d3a;
-    margin: 1.2rem 0;
-}
-
+.divider { border: none; border-top: 1px solid #2a2d3a; margin: 1.2rem 0; }
 .stButton > button {
-    background: #c9a84c;
-    color: #0f1117;
-    border: none;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.88rem;
-    padding: 0.5rem 1.2rem;
-    transition: background 0.2s;
+    background: #c9a84c; color: #0f1117; border: none;
+    border-radius: 6px; font-weight: 600; font-size: 0.88rem;
+    padding: 0.5rem 1.2rem; transition: background 0.2s;
 }
-
-.stButton > button:hover {
-    background: #e0bf6a;
-    color: #0f1117;
-}
-
+.stButton > button:hover { background: #e0bf6a; color: #0f1117; }
 .stTextInput > div > div > input {
-    background: #1a1d27;
-    border: 1px solid #2a2d3a;
-    color: #e8e8e8;
-    border-radius: 6px;
+    background: #1a1d27; border: 1px solid #2a2d3a;
+    color: #e8e8e8; border-radius: 6px;
 }
-
 section[data-testid="stSidebar"] {
-    background-color: #13151f;
-    border-right: 1px solid #2a2d3a;
-}
-
-.upload-hint {
-    font-size: 0.8rem;
-    color: #666;
-    margin-top: 0.4rem;
+    background-color: #13151f; border-right: 1px solid #2a2d3a;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Constants ─────────────────────────────────────────────────────────────────
 MAX_PAGES = 100
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+# Best FREE model on OpenRouter as of 2024 — reliable, fast, great for legal text
+FREE_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 
+# ── OpenRouter API call ───────────────────────────────────────────────────────
+def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
+        "X-Title": "Nischal Chat Bot",
+    }
+    payload = {
+        "model": FREE_MODEL,
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+    }
+    resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
+    if resp.status_code != 200:
+        raise RuntimeError(f"OpenRouter error {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+
+# ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
-    """Extract text from uploaded PDF, capped at MAX_PAGES."""
     doc = fitz.open(stream=file.read(), filetype="pdf")
     pages = min(len(doc), MAX_PAGES)
     text = ""
@@ -136,19 +128,9 @@ def extract_pdf_text(file) -> tuple[str, int]:
     return text.strip(), pages
 
 
-def get_gemini_model():
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
-    if not api_key:
-        st.error("⚠️ Add your GEMINI_API_KEY to Streamlit secrets.")
-        st.stop()
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-1.5-flash")
-
-
-ANALYSIS_PROMPT = """
-You are a senior legal analyst. Read the legal document below and produce a structured analysis.
-Return EXACTLY these 7 sections, each starting with its label on its own line, followed by the content.
-Keep each section concise: 2–5 sentences or a short bulleted list. Do not pad or repeat.
+# ── Prompts ───────────────────────────────────────────────────────────────────
+ANALYSIS_SYSTEM = """You are a senior legal analyst. Produce a structured case analysis.
+Return EXACTLY these 7 labelled sections. Each section: 2–5 sentences. No padding, no repetition.
 
 CASE NAME:
 PARTIES:
@@ -156,28 +138,18 @@ MATERIAL FACTS:
 LEGAL ISSUES:
 RATIO DECIDENDI:
 DECISION / HOLDING:
-KEY TAKEAWAY:
+KEY TAKEAWAY:"""
 
-Document:
-{text}
-"""
-
-CHAT_PROMPT = """
-You are a sharp legal assistant. The user has uploaded a legal document.
-Answer questions about it clearly and concisely — 2 to 5 sentences max.
-Do not repeat the question. Get straight to the point.
-
-Document context:
-{context}
-
-User question: {question}
-"""
+CHAT_SYSTEM = """You are a sharp legal assistant helping a user understand a specific legal document.
+Answer questions clearly and concisely — 2 to 5 sentences maximum.
+Do not repeat the question. Get straight to the point. Do not make up facts not in the document."""
 
 
+# ── Parse analysis output ─────────────────────────────────────────────────────
 def parse_analysis(raw: str) -> dict:
     labels = [
         "CASE NAME", "PARTIES", "MATERIAL FACTS",
-        "LEGAL ISSUES", "RATIO DECIDENDI", "DECISION / HOLDING", "KEY TAKEAWAY"
+        "LEGAL ISSUES", "RATIO DECIDENDI", "DECISION / HOLDING", "KEY TAKEAWAY",
     ]
     result = {l: "" for l in labels}
     lines = raw.splitlines()
@@ -192,29 +164,23 @@ def parse_analysis(raw: str) -> dict:
                 if current:
                     result[current] = " ".join(buffer).strip()
                 current = label
-                # Content may follow the colon on the same line
                 after = stripped[len(label):].lstrip(":").strip()
                 buffer = [after] if after else []
                 matched = True
                 break
-        if not matched and current:
+        if not matched and current and stripped:
             buffer.append(stripped)
 
     if current:
         result[current] = " ".join(buffer).strip()
-
     return result
 
 
 def render_analysis(sections: dict):
     icons = {
-        "CASE NAME": "🏛️",
-        "PARTIES": "👥",
-        "MATERIAL FACTS": "📋",
-        "LEGAL ISSUES": "⚖️",
-        "RATIO DECIDENDI": "📐",
-        "DECISION / HOLDING": "🔨",
-        "KEY TAKEAWAY": "💡",
+        "CASE NAME": "🏛️", "PARTIES": "👥", "MATERIAL FACTS": "📋",
+        "LEGAL ISSUES": "⚖️", "RATIO DECIDENDI": "📐",
+        "DECISION / HOLDING": "🔨", "KEY TAKEAWAY": "💡",
     }
     for label, content in sections.items():
         if content:
@@ -227,14 +193,13 @@ def render_analysis(sections: dict):
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
-if "doc_text" not in st.session_state:
-    st.session_state.doc_text = ""
-if "analysis" not in st.session_state:
-    st.session_state.analysis = {}
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "page_count" not in st.session_state:
-    st.session_state.page_count = 0
+for key, default in [
+    ("doc_text", ""), ("analysis", {}),
+    ("chat_history", []), ("page_count", 0),
+]:
+    if key not in st.session_state:
+        st.session_state[key] = default
+
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -256,28 +221,41 @@ with st.sidebar:
     if st.session_state.doc_text:
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
         if st.button("🔍 Analyse Document"):
-            with st.spinner("Analysing…"):
-                model = get_gemini_model()
-                prompt = ANALYSIS_PROMPT.format(
-                    text=st.session_state.doc_text[:30000]
-                )
-                response = model.generate_content(prompt)
-                st.session_state.analysis = parse_analysis(response.text)
+            api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+            if not api_key:
+                st.error("⚠️ Add OPENROUTER_API_KEY to Streamlit secrets.")
+            else:
+                with st.spinner("Analysing with Llama 3.1…"):
+                    try:
+                        raw = call_openrouter(
+                            api_key,
+                            system_prompt=ANALYSIS_SYSTEM,
+                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:28000]}",
+                            max_tokens=1400,
+                        )
+                        st.session_state.analysis = parse_analysis(raw)
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
         st.markdown('<hr class="divider">', unsafe_allow_html=True)
         if st.button("🗑️ Clear Everything"):
-            for key in ["doc_text", "analysis", "chat_history", "page_count"]:
-                st.session_state[key] = {} if key == "analysis" else ([] if key == "chat_history" else ("" if key != "page_count" else 0))
+            st.session_state.doc_text = ""
+            st.session_state.analysis = {}
+            st.session_state.chat_history = []
+            st.session_state.page_count = 0
             st.rerun()
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
-    st.markdown('<div style="font-size:0.75rem;color:#555;">Powered by Gemini 1.5 Flash · Free tier</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:0.75rem;color:#555;">Powered by Llama 3.1 via OpenRouter · Free</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ── Main layout ───────────────────────────────────────────────────────────────
 col_analysis, col_chat = st.columns([1.1, 0.9], gap="large")
 
-# Left column — Analysis
+# Left — Analysis
 with col_analysis:
     st.markdown('<div class="main-title" style="font-size:1.6rem;">Case Analysis</div>', unsafe_allow_html=True)
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
@@ -286,23 +264,22 @@ with col_analysis:
         st.markdown("""
         <div class="card">
             <div class="card-content" style="color:#666;">
-                Upload a PDF from the sidebar, then click <strong style="color:#c9a84c;">Analyse Document</strong> to extract the case summary.
+                Upload a PDF from the sidebar, then click
+                <strong style="color:#c9a84c;">Analyse Document</strong>.
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
     elif not st.session_state.analysis:
         st.markdown("""
         <div class="card">
             <div class="card-content" style="color:#888;">
                 Document loaded. Click <strong style="color:#c9a84c;">Analyse Document</strong> in the sidebar.
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
     else:
         render_analysis(st.session_state.analysis)
 
 
-# Right column — Chat
+# Right — Chat
 with col_chat:
     st.markdown('<div class="main-title" style="font-size:1.6rem;">Ask Nischal</div>', unsafe_allow_html=True)
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
@@ -313,40 +290,49 @@ with col_chat:
             <div class="card-content" style="color:#666;">
                 Upload a document first to start asking questions.
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
     else:
-        # Chat history display
-        chat_container = st.container()
-        with chat_container:
-            if not st.session_state.chat_history:
-                st.markdown("""
-                <div class="card" style="border-color:#2a2d3a;">
-                    <div class="card-content" style="color:#666;font-size:0.85rem;">
-                        Ask anything about the document — parties, jurisdiction, ratio, outcome…
-                    </div>
+        # Chat history
+        if not st.session_state.chat_history:
+            st.markdown("""
+            <div class="card" style="border-color:#2a2d3a;">
+                <div class="card-content" style="color:#666;font-size:0.85rem;">
+                    Ask anything — parties, jurisdiction, ratio, outcome…
                 </div>
-                """, unsafe_allow_html=True)
-            for turn in st.session_state.chat_history:
-                st.markdown(f'<div class="chat-bubble-user">🧑 {turn["q"]}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="chat-bubble-bot">🤖 {turn["a"]}</div>', unsafe_allow_html=True)
+            </div>""", unsafe_allow_html=True)
+        for turn in st.session_state.chat_history:
+            st.markdown(f'<div class="chat-bubble-user">🧑 {turn["q"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="chat-bubble-bot">🤖 {turn["a"]}</div>', unsafe_allow_html=True)
 
         st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
 
-        # Input
         with st.form("chat_form", clear_on_submit=True):
-            question = st.text_input("Your question", placeholder="e.g. What was the main legal issue?", label_visibility="collapsed")
+            question = st.text_input(
+                "Your question",
+                placeholder="e.g. What was the main legal issue?",
+                label_visibility="collapsed",
+            )
             submitted = st.form_submit_button("Send →")
 
         if submitted and question.strip():
-            with st.spinner("Thinking…"):
-                model = get_gemini_model()
-                context = st.session_state.doc_text[:20000]
-                prompt = CHAT_PROMPT.format(context=context, question=question.strip())
-                response = model.generate_content(prompt)
-                answer = response.text.strip()
-                st.session_state.chat_history.append({"q": question.strip(), "a": answer})
-            st.rerun()
+            api_key = st.secrets.get("OPENROUTER_API_KEY", "")
+            if not api_key:
+                st.error("⚠️ Add OPENROUTER_API_KEY to Streamlit secrets.")
+            else:
+                with st.spinner("Thinking…"):
+                    try:
+                        context = st.session_state.doc_text[:18000]
+                        user_msg = f"Document:\n{context}\n\nQuestion: {question.strip()}"
+                        answer = call_openrouter(
+                            api_key,
+                            system_prompt=CHAT_SYSTEM,
+                            user_message=user_msg,
+                            max_tokens=400,
+                        )
+                        st.session_state.chat_history.append({"q": question.strip(), "a": answer})
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                st.rerun()
 
         if st.session_state.chat_history:
             if st.button("Clear chat"):
