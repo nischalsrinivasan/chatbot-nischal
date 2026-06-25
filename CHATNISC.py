@@ -5,19 +5,40 @@ from openai import OpenAI
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
-st.title("⚖️ Nischal's Chat Bot")
-st.write("Stable, zero-cost analysis for any judgment PDF.")
+st.title("⚖️ Nischal's Chat Bot (RAG Enabled)")
+st.write("Cross-referencing legal judgments against your NLSIU Contracts II & Property Law benchmarks.")
+
+# Simulated Knowledge Base Embeddings (Extracted Core Frameworks from your Course Notes)
+COURSE_NOTES_KNOWLEDGE = {
+    "contracts_ii": (
+        "Prof. Ragini Surana Course Notes Standards:\n"
+        "- Focuses heavily on the Law of Unjust Enrichment, restitutionary remedies, and obligations outside traditional contract barriers.\n"
+        "- Emphasizes legal capacity thresholds (e.g., critical readings of Section 11 and Mohori Bibee void ab initio doctrines vs. practical digital realities).\n"
+        "- Prioritizes statutory interpretation of specific indemnity, guarantee, bailment, pledge, and agency provisions under the ICA."
+    ),
+    "property_law": (
+        "Prof. Karthik Suresh Course Notes Standards:\n"
+        "- Theoretical frameworks of property rights, conceptions of justice, and distributive mechanisms under the TP Act, 1882.\n"
+        "- Focuses on modes of transfer: specific mechanics of Sale, Mortgage, Lease, Exchange, and Gifts.\n"
+        "- Emphasizes constitutional history (balancing private property vs. public interest), RERA 2016 consumer interpretations, and the Indian Easements Act."
+    )
+}
 
 # Sidebar for file uploads
 with st.sidebar:
     st.header("Upload Center")
     uploaded_file = st.file_uploader("Upload Case Judgment (PDF)", type="pdf")
+    
+    st.header("RAG Context Engine")
+    selected_module = st.selectbox(
+        "Select Course Benchmark Alignment:",
+        ["None (Standard Analysis)", "Contracts II (Prof. Ragini Surana)", "Property Law (Prof. Karthik Suresh)"]
+    )
 
 if uploaded_file:
     raw_text = ""
     total_pages = 0
     
-    # 1. High-fidelity text layer read
     with pdfplumber.open(uploaded_file) as pdf:
         total_pages = len(pdf.pages)
         for page in pdf.pages:
@@ -25,9 +46,8 @@ if uploaded_file:
             if text:
                 raw_text += text + "\n"
                 
-    # 2. OCR Fallback for image scans / scrambled characters
     if len(raw_text.strip()) < 100:
-        st.sidebar.warning("⚠️ Scrambled/Scanned layout detected. Parsing pixels...")
+        st.sidebar.warning("⚠️ Scrambled layout detected. Running fallback parser...")
         raw_text = ""
         uploaded_file.seek(0)
         doc = pdfium.PdfDocument(uploaded_file.read())
@@ -52,7 +72,13 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
-        # Secure packet sizing to guarantee free execution under heavy server load
+        # Retrieve mapped RAG anchor context based on selection
+        rag_context = ""
+        if "Contracts II" in selected_module:
+            rag_context = COURSE_NOTES_KNOWLEDGE["contracts_ii"]
+        elif "Property Law" in selected_module:
+            rag_context = COURSE_NOTES_KNOWLEDGE["property_law"]
+
         if total_chars > 25000:
             optimized_context = raw_text[:18000] + "\n\n[...]\n\n" + raw_text[-7000:]
         else:
@@ -61,44 +87,46 @@ if uploaded_file:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("📋 FIRAC")
-            if st.button("✨ Extract Facts, Issues & Ratio"):
-                with st.spinner("Compiling brief..."):
+            st.subheader("📋 FIRAC EXTRACTION")
+            if st.button("✨ Generate Benchmarked Notes"):
+                with st.spinner("Executing RAG synthesis..."):
                     full_prompt = (
-                        "You are an expert Indian legal analyst. Analyze the provided court judgment text segments and provide a structured breakdown strictly adhering to these constraints:\n\n"
-                        "1. MATERIAL FACTS: Keep this highly concise. Extract only the critical, essential facts necessary to understand the cause of action. Skip background filler.\n"
-                        "2. KEY LEGAL ISSUES: State these cleanly and precisely. Highlight only the core legal questions the court had to resolve.\n"
-                        "3. RATIO DECIDENDI: Provide a detailed, comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and legal tests used by the court.\n\n"
-                        "4. 🚀 INSTANT SNAPSHOT: At the very end, provide a clean, crisp summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
-                        f"Case text:\n\n{optimized_context}"
+                        "You are an expert Indian legal analyst. Analyze the court judgment segments below and synthesize them into a clean, unified breakdown matching this exact, uniform format rule. Do not add random prose outside these headers:\n\n"
+                        "## 📋 CORE LEGAL ISSUES\nState cleanly and precisely the core questions of law the court had to resolve.\n\n"
+                        "## 🔍 MATERIAL FACTS\nProvide a highly concise, text-bounded paragraph of only the critical, essential facts necessary to understand the cause of action.\n\n"
+                        "## ⚖️ RATIO DECIDENDI & JURISPRUDENTIAL LOGIC\nProvide a detailed, highly comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and any specific legal tests or statutory provisions applied by the court.\n\n"
+                        "## 📚 COURSE NOTE BENCHMARK ALIGNMENT\nUsing the course note metrics provided below, map out exactly how this judgment aligns with, expands upon, or critiques the specific doctrines or academic frameworks taught in class.\n\n"
+                        "## 🚀 INSTANT SNAPSHOT\nProvide a clean, easy-to-read summary covering the absolute essence of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
+                        f"Course Note Benchmarks:\n{rag_context}\n\n"
+                        f"Case Text Segments:\n\n{optimized_context}"
                     )
                     try:
                         response = client.chat.completions.create(
                             model="openrouter/free",
                             messages=[{"role": "user", "content": full_prompt}],
-                            max_tokens=800
+                            max_tokens=1200
                         )
-                        st.write(response.choices[0].message.content)
+                        st.markdown(response.choices[0].message.content)
                     except Exception as e:
                         st.error(f"❌ API Error: {str(e)}")
 
         with col2:
-            st.subheader("💬 ASK ANYTHING")
-            user_question = st.text_input("Ask a question...")
+            st.subheader("💬 BENCHMARKED CONSULTATION")
+            user_question = st.text_input("Query arguments or verify specific sections against class benchmarks...")
             
             if user_question:
-                with st.spinner("Evaluating..."):
+                with st.spinner("Evaluating against notes..."):
                     chat_prompt = (
-                        "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
-                        "Give a straight, to-the-point answer followed by a very short, clear explanation.\n\n"
-                        f"Primary Case Reference:\n{optimized_context}\n\n"
+                        "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely, framing your explanation through the lens of the provided academic course benchmarks.\n\n"
+                        f"Course Benchmarks:\n{rag_context}\n\n"
+                        f"Case Material:\n{optimized_context}\n\n"
                         f"User Query: {user_question}"
                     )
                     try:
                         chat_response = client.chat.completions.create(
                             model="openrouter/free",
                             messages=[{"role": "user", "content": chat_prompt}],
-                            max_tokens=300
+                            max_tokens=400
                         )
                         st.info(chat_response.choices[0].message.content)
                     except Exception as inner_e:
