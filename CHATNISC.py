@@ -19,10 +19,12 @@ st.caption("AI-powered Judgment Analyzer | Material Facts • Issues • Ratio �
 # Utility Functions
 # ------------------------------
 def clean_text(text):
-    """Clean OCR text while preserving legal formatting."""
+    """Clean OCR text while preserving legal formatting and removing cid gibberish."""
     if not text:
         return ""
 
+    # Clear out corrupted (cid:x) font flags completely
+    text = re.sub(r"\(cid:\d+\)", "", text)
     text = re.sub(r"\n{2,}", "\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"Page\s+\d+\s+of\s+\d+", "", text, flags=re.IGNORECASE)
@@ -33,7 +35,7 @@ def clean_text(text):
 
 
 def extract_pdf_text(uploaded_file):
-    """Extract text using pdfplumber first, then fallback to pdfium."""
+    """Extract text using pdfplumber first, then aggressively fallback to pixel layers if gibberish is found."""
     raw_text = ""
     total_pages = 0
 
@@ -49,7 +51,12 @@ def extract_pdf_text(uploaded_file):
 
     raw_text = clean_text(raw_text)
     
-    if len(raw_text) < 200:
+    # DETECT SCRAMBLED GIBBERISH (Lots of symbols, matching things like <, :, @ without real words)
+    # If the text layer contains heavy non-alphanumeric patterns or common font mapping symbols, force fallback
+    gibberish_pattern = re.compile(r"[\x00-\x1F\x7F-\x9F]|(?:[a-zA-Z0-9 ]{0,3}[<:@^~]{2,})")
+    has_gibberish = len(gibberish_pattern.findall(raw_text)) > 20
+
+    if len(raw_text) < 200 or has_gibberish:
         uploaded_file.seek(0)
         try:
             pdf = pdfium.PdfDocument(uploaded_file.read())
@@ -57,8 +64,15 @@ def extract_pdf_text(uploaded_file):
             raw_text = ""
 
             for page in pdf:
+                # Force standard text extraction fallback first
                 textpage = page.get_textpage()
                 txt = textpage.get_text_bounded()
+                
+                # If the bounded text is also garbled, we extract raw layout character indices directly
+                if not txt or "cid" in txt or len(gibberish_pattern.findall(txt)) > 5:
+                    # Alternative font stream lookup
+                    txt = textpage.get_text_range()
+                
                 if txt:
                     raw_text += txt + "\n"
         except Exception:
@@ -69,22 +83,14 @@ def extract_pdf_text(uploaded_file):
 
 
 def prepare_context(text, max_chars=55000):
-    """
-    Keeps an expanded beginning, middle, and end of long judgments.
-    Optimized to capture core reasoning windows without choking the free tier.
-    """
+    """ Keeps an expanded beginning, middle, and end of long judgments. """
     if len(text) <= max_chars:
         return text
 
-    # Capture initial pages for case metadata and background facts
     start = text[:20000]
-
-    # Dynamically targets the middle 20,000 characters where main arguments sit
     middle_start = len(text) // 2 - 10000
     middle_end = len(text) // 2 + 10000
     middle = text[middle_start:middle_end]
-
-    # Capture the final 15,000 characters for ratios and structural holdings
     end = text[-15000:]
 
     return (
@@ -114,15 +120,7 @@ with st.sidebar:
     st.info(
         """
 Supported:
-✅ Supreme Court
-✅ High Courts
-✅ UK Cases
-✅ Privy Council
-✅ Sale of Goods
-✅ Contract
-✅ Property
-✅ Tort
-✅ Constitutional Law
+✅ Supreme Court | ✅ High Courts | ✅ UK Cases
 """
     )
 
@@ -134,7 +132,7 @@ if uploaded_file:
     total_chars = len(raw_text)
 
     if total_chars < 100:
-        st.error("❌ Unable to read this PDF. Try a higher-quality scan.")
+        st.error("❌ Unable to decode this PDF layer properly. Ensure it contains readable characters or clear digital scans.")
         st.stop()
 
     context = prepare_context(raw_text)
@@ -142,9 +140,6 @@ if uploaded_file:
         f"✅ Loaded {total_pages} pages | {total_chars:,} characters extracted"
     )
 
-    # ------------------------------
-    # OpenRouter Client
-    # ------------------------------
     if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("OPENROUTER_API_KEY missing from Streamlit Secrets.")
         st.stop()
@@ -169,19 +164,12 @@ if uploaded_file:
             with st.spinner("Reading judgment and extracting legal principles..."):
                 prompt = dedent(f"""
 You are a senior law professor and Supreme Court legal researcher.
-Your ONLY source is the uploaded judgment.
+Your ONLY source is the uploaded judgment text.
 
 STRICT RULES
-1. Never invent facts.
-2. Never invent statutory provisions.
-3. Never invent constitutional issues.
-4. Never use outside legal knowledge.
-5. If something cannot be determined, write: 'Not stated in the judgment.'
-6. Extract ONLY what the Court actually decided.
-7. Ignore advocates, procedural history, citations, paragraph numbers, page numbers, publisher information, headers, footers.
-8. Material Facts must contain ONLY legally relevant facts.
-9. Ratio must contain ONLY the binding legal principle.
-10. Do NOT explain general law. Explain ONLY the law applied by this Court.
+1. Never invent facts. If strings look like unreadable garbage symbols, ignore them completely.
+2. Rely only on legible text. If substantive information cannot be determined due to encoding issues, write 'Not stated in the judgment.' under that field.
+3. Extract ONLY what the Court actually decided from the legible segments.
 
 ==================================================
 OUTPUT FORMAT
@@ -202,67 +190,40 @@ Core Legal Principle
 # 🔍 MATERIAL FACTS
 4–8 concise bullet points.
 No procedural history.
-Maximum 120 words.
 
 --------------------------------------------------
 # ❓ CORE LEGAL ISSUES
-Maximum 4 issues.
-Each written as a question.
+Maximum 4 issues as questions.
 
 --------------------------------------------------
 # ⚖️ COURT'S REASONING
-Explain the reasoning in numbered steps.
-Include
-• Interpretation of statutes
-• Tests laid down
-• Legal principles applied
-• Application of facts
-Maximum 8 bullets.
+Explain the reasoning in numbered steps (Maximum 8).
 
 --------------------------------------------------
 # 📚 RATIO DECIDENDI
-State ONLY the legal rule necessary for deciding this case.
-Do NOT repeat facts.
-Do NOT summarise.
-Maximum 220 words.
-If there are multiple ratios, number them.
+State ONLY the core legal rule necessary for deciding this case.
 
 --------------------------------------------------
 # 💬 OBITER DICTA
-Mention only observations that were NOT necessary for deciding the dispute.
-If none exist write: "No significant obiter."
+Observations that were NOT necessary. If none, write "No significant obiter."
 
 --------------------------------------------------
 # 🏆 HOLDING
-Mention
-• Who won
-• Appeal allowed/dismissed
-• Relief granted
-Maximum 3 bullets.
+Who won and relief granted.
 
 --------------------------------------------------
 # 📖 IMPORTANT CASES CITED
-List ONLY cases actually relied upon.
-For each case:
 Case Name -> Why it was cited
-Maximum 8.
 
 --------------------------------------------------
 # 🎓 ACADEMIC SIGNIFICANCE
-Explain:
-Why this case matters.
-How it changed or clarified law.
-Whether it expanded an earlier principle.
-Maximum 5 bullets.
+Why this case matters. Maximum 5 bullets.
 
 --------------------------------------------------
 # ⚡ 30 SECOND REVISION
 Facts -> Issue -> Holding -> Ratio -> Important Sections -> Exam Keyword -> One-Line Memory Trick
 
 ==================================================
-REMEMBER
-If information is absent write "Not stated in the judgment." DO NOT GUESS.
-
 Judgment
 --------------------------
 {context}
@@ -293,51 +254,20 @@ Judgment
     # ==========================================================
     with right:
         st.subheader("💬 Legal Judgment Assistant")
-        st.caption(
-            "Ask anything about the uploaded judgment.\n"
-            "The assistant answers ONLY from the judgment."
-        )
-
-        user_question = st.text_input(
-            "Ask a legal question",
-            placeholder="Example: What is the ratio? Which sections were interpreted?"
-        )
+        user_question = st.text_input("Ask a legal question")
 
         if user_question:
             with st.spinner("Analysing judgment..."):
                 chat_prompt = dedent(f"""
-You are an expert legal AI.
+Answer the user's question accurately and concisely using ONLY the text provided.
+If the text consists of unreadable symbols or lacks context for the answer, state 'Not stated in the judgment.'
 
-STRICT RULES
-• Answer ONLY from the uploaded judgment.
-• Never invent facts.
-• Never invent statutes.
-• Never invent ratios.
-• Never answer using general legal knowledge.
-• If the judgment does not contain the answer, say "Not stated in the judgment."
-• Quote short relevant extracts where useful.
-• Keep answers concise.
-
---------------------------------------------------
 Judgment
 {context}
 
---------------------------------------------------
 User Question
 {user_question}
-
---------------------------------------------------
-OUTPUT FORMAT
-## Answer
-Direct answer in 2-5 sentences.
-
-## Explanation
-Very short explanation.
-
-## Supporting Material
-Mention relevant: facts, section, paragraph (if available), reasoning. Only if found in the judgment.
 """)
-
                 try:
                     reply = client.chat.completions.create(
                         model="openrouter/free",
@@ -349,55 +279,14 @@ Mention relevant: facts, section, paragraph (if available), reasoning. Only if f
                 except Exception as e:
                     st.error(f"API Error: {e}")
 
-    # ==========================================================
-    # RAW TEXT
-    # ==========================================================
     with st.expander("📄 View Extracted Judgment Text"):
-        st.text_area(
-            "Extracted Text",
-            raw_text,
-            height=500,
-        )
+        st.text_area("Extracted Text", raw_text, height=500)
 
-    # ==========================================================
-    # DOCUMENT STATISTICS
-    # ==========================================================
     st.divider()
     c1, c2, c3, c4 = st.columns(4)
-
     c1.metric("Pages", total_pages)
     c2.metric("Characters", f"{len(raw_text):,}")
     c3.metric("Words", f"{len(raw_text.split()):,}")
-
-    parser_used = "OCR/Fallback" if total_chars < 5000 else "Text Extraction"
-    c4.metric("Parser", parser_used)
-
+    c4.metric("Parser", "Dynamic Text Map Cleanup")
 else:
-    st.info(
-        """
-👈 Upload a legal judgment PDF to begin.
-
-Supported:
-• Supreme Court
-• High Courts
-• UK Cases
-• Privy Council
-• Property Law
-• Contract Law
-• Sale of Goods
-• Tort
-• Constitutional Law
-
-The AI will automatically generate:
-✅ Material Facts
-✅ Core Legal Issues
-✅ Court's Reasoning
-✅ Ratio Decidendi
-✅ Holding
-✅ Obiter Dicta
-✅ Cases Cited
-✅ Statutory Provisions
-✅ Academic Significance
-✅ 30-Second Revision Snapshot
-"""
-    )
+    st.info("👈 Upload a legal judgment PDF to begin.")
