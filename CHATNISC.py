@@ -101,8 +101,6 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
         "X-Title": "Nischal Chat Bot",
     }
-    
-    # We use openrouter/free router to dynamically hit whatever is working right now
     payload = {
         "model": "openrouter/free",
         "max_tokens": max_tokens,
@@ -111,7 +109,6 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
             {"role": "user", "content": user_message},
         ],
     }
-    
     try:
         resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=45)
         if resp.status_code == 200:
@@ -133,7 +130,9 @@ def extract_pdf_text(file) -> tuple[str, int]:
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 ANALYSIS_SYSTEM = """You are a senior legal analyst. Produce a structured case analysis.
-Return EXACTLY these 7 labelled sections. Each section: 2–5 sentences. No padding, no repetition.
+CRITICAL: Do not include formatting meta-text explanation examples like 'sentence1, sentence2 => 2 sentences'. 
+Output exactly the requested content sections immediately following the exact title labels below. 
+Each section must contain 2 to 5 standard analytical sentences. Do not use blank lines between headers or add meta-commentary padding.
 
 CASE NAME:
 PARTIES:
@@ -161,11 +160,18 @@ def parse_analysis(raw: str) -> dict:
 
     for line in lines:
         stripped = line.strip()
+        if not stripped:
+            continue
         matched = False
         for label in labels:
             if stripped.upper().startswith(label):
                 if current:
-                    result[current] = " ".join(buffer).strip()
+                    # Clear out meta expressions or placeholder leaks from text
+                    content = " ".join(buffer).strip()
+                    for pattern in ["=>", "sentences.", "sentence1", "sentence2"]:
+                        if pattern in content and len(content) < 100:
+                            content = ""
+                    result[current] = content
                 current = label
                 after = stripped[len(label):].lstrip(":").strip()
                 buffer = [after] if after else []
@@ -175,7 +181,11 @@ def parse_analysis(raw: str) -> dict:
             buffer.append(stripped)
 
     if current:
-        result[current] = " ".join(buffer).strip()
+        content = " ".join(buffer).strip()
+        for pattern in ["=>", "sentences.", "sentence1", "sentence2"]:
+            if pattern in content and len(content) < 100:
+                content = ""
+        result[current] = content
     return result
 
 
