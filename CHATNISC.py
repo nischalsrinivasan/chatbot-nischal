@@ -101,8 +101,10 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
         "X-Title": "Nischal Chat Bot",
     }
+    
+    # Force Gemini 2.5 Flash Free: fast, massive window, highly obedient to formatting rules
     payload = {
-        "model": "openrouter/free",
+        "model": "google/gemini-2.5-flash:free",
         "max_tokens": max_tokens,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -114,9 +116,9 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"].strip()
         else:
-            raise RuntimeError(f"OpenRouter returned Status {resp.status_code}: {resp.text[:200]}")
+            raise RuntimeError(f"OpenRouter Error {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-        raise RuntimeError(f"Network or API Error: {str(e)}")
+        raise RuntimeError(f"Connection Error: {str(e)}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
@@ -129,10 +131,13 @@ def extract_pdf_text(file) -> tuple[str, int]:
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-ANALYSIS_SYSTEM = """You are a senior legal analyst. Produce a structured case analysis.
-CRITICAL: Do not include formatting meta-text explanation examples like 'sentence1, sentence2 => 2 sentences'. 
-Output exactly the requested content sections immediately following the exact title labels below. 
-Each section must contain 2 to 5 standard analytical sentences. Do not use blank lines between headers or add meta-commentary padding.
+ANALYSIS_SYSTEM = """You are a precise corporate legal analyst tool.
+Analyze the provided legal document and fill out exactly the 7 labels below. 
+
+Instructions:
+1. Provide ONLY factual content directly pulled from the case text.
+2. Write 2 to 4 clear legal sentences under each header.
+3. Do not include any metatext commentary, sentence count tallies, explanations, or labels matching "sentence1" or "=>". Just write plain summary paragraphs under the headers.
 
 CASE NAME:
 PARTIES:
@@ -162,16 +167,15 @@ def parse_analysis(raw: str) -> dict:
         stripped = line.strip()
         if not stripped:
             continue
+            
         matched = False
         for label in labels:
             if stripped.upper().startswith(label):
                 if current:
-                    # Clear out meta expressions or placeholder leaks from text
                     content = " ".join(buffer).strip()
-                    for pattern in ["=>", "sentences.", "sentence1", "sentence2"]:
-                        if pattern in content and len(content) < 100:
-                            content = ""
-                    result[current] = content
+                    # Filter out any weird evaluation leakages or evaluation remarks
+                    if "=>" not in content and "sentence1" not in content:
+                        result[current] = content
                 current = label
                 after = stripped[len(label):].lstrip(":").strip()
                 buffer = [after] if after else []
@@ -182,10 +186,9 @@ def parse_analysis(raw: str) -> dict:
 
     if current:
         content = " ".join(buffer).strip()
-        for pattern in ["=>", "sentences.", "sentence1", "sentence2"]:
-            if pattern in content and len(content) < 100:
-                content = ""
-        result[current] = content
+        if "=>" not in content and "sentence1" not in content:
+            result[current] = content
+            
     return result
 
 
@@ -238,12 +241,12 @@ with st.sidebar:
             if not api_key:
                 st.error("⚠️ Add OPENROUTER_API_KEY to Streamlit secrets.")
             else:
-                with st.spinner("Analysing via OpenRouter Free..."):
+                with st.spinner("Processing analysis via Gemini..."):
                     try:
                         raw = call_openrouter(
                             api_key,
                             system_prompt=ANALYSIS_SYSTEM,
-                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:24000]}",
+                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:28000]}",
                             max_tokens=1400,
                         )
                         st.session_state.analysis = parse_analysis(raw)
@@ -260,7 +263,7 @@ with st.sidebar:
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-size:0.75rem;color:#555;">Powered by OpenRouter Auto-Free Router</div>',
+        '<div style="font-size:0.75rem;color:#555;">Powered by Gemini Free via OpenRouter</div>',
         unsafe_allow_html=True,
     )
 
