@@ -1,292 +1,354 @@
 import streamlit as st
-import pdfplumber
-import pypdfium2 as pdfium
-import re
-from openai import OpenAI
-from textwrap import dedent
+import fitz  # PyMuPDF
+import google.generativeai as genai
+import textwrap
 
+# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="⚖️ Nischal's Legal AI",
+    page_title="Nischal Chat Bot",
     page_icon="⚖️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-st.title("⚖️ Nischal's Legal AI")
-st.caption("AI-powered Judgment Analyzer | Material Facts • Issues • Ratio • Holding • Revision Notes")
+# ── Styling ───────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600&family=Inter:wght@400;500;600&display=swap');
 
-# ------------------------------
-# Utility Functions
-# ------------------------------
-def clean_text(text):
-    """Clean OCR text while preserving legal formatting and removing cid gibberish."""
-    if not text:
-        return ""
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+    background-color: #0f1117;
+    color: #e8e8e8;
+}
 
-    # Clear out corrupted (cid:x) font flags completely
-    text = re.sub(r"\(cid:\d+\)", "", text)
-    text = re.sub(r"\n{2,}", "\n", text)
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"Page\s+\d+\s+of\s+\d+", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"About LexisNexis.*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"Copyright.*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\[\*\d+\]", "", text)
-    return text.strip()
+.main-title {
+    font-family: 'EB Garamond', serif;
+    font-size: 2.4rem;
+    font-weight: 600;
+    color: #c9a84c;
+    letter-spacing: 0.02em;
+    margin-bottom: 0.2rem;
+}
+
+.subtitle {
+    font-size: 0.9rem;
+    color: #888;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.card {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1rem;
+}
+
+.card-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #c9a84c;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.4rem;
+}
+
+.card-content {
+    font-size: 0.92rem;
+    color: #d4d4d4;
+    line-height: 1.65;
+}
+
+.chat-bubble-user {
+    background: #1e2235;
+    border-left: 3px solid #c9a84c;
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+}
+
+.chat-bubble-bot {
+    background: #151820;
+    border-left: 3px solid #4a7c9e;
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    color: #d4d4d4;
+}
+
+.divider {
+    border: none;
+    border-top: 1px solid #2a2d3a;
+    margin: 1.2rem 0;
+}
+
+.stButton > button {
+    background: #c9a84c;
+    color: #0f1117;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    padding: 0.5rem 1.2rem;
+    transition: background 0.2s;
+}
+
+.stButton > button:hover {
+    background: #e0bf6a;
+    color: #0f1117;
+}
+
+.stTextInput > div > div > input {
+    background: #1a1d27;
+    border: 1px solid #2a2d3a;
+    color: #e8e8e8;
+    border-radius: 6px;
+}
+
+section[data-testid="stSidebar"] {
+    background-color: #13151f;
+    border-right: 1px solid #2a2d3a;
+}
+
+.upload-hint {
+    font-size: 0.8rem;
+    color: #666;
+    margin-top: 0.4rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+MAX_PAGES = 100
+
+def extract_pdf_text(file) -> tuple[str, int]:
+    """Extract text from uploaded PDF, capped at MAX_PAGES."""
+    doc = fitz.open(stream=file.read(), filetype="pdf")
+    pages = min(len(doc), MAX_PAGES)
+    text = ""
+    for i in range(pages):
+        text += doc[i].get_text()
+    return text.strip(), pages
 
 
-def extract_pdf_text(uploaded_file):
-    """Extract text using pdfplumber first, then aggressively fallback to pixel layers if gibberish is found."""
-    raw_text = ""
-    total_pages = 0
-
-    try:
-        with pdfplumber.open(uploaded_file) as pdf:
-            total_pages = len(pdf.pages)
-            for page in pdf.pages:
-                txt = page.extract_text()
-                if txt:
-                    raw_text += txt + "\n"
-    except Exception:
-        pass
-
-    raw_text = clean_text(raw_text)
-    
-    # DETECT SCRAMBLED GIBBERISH (Lots of symbols, matching things like <, :, @ without real words)
-    # If the text layer contains heavy non-alphanumeric patterns or common font mapping symbols, force fallback
-    gibberish_pattern = re.compile(r"[\x00-\x1F\x7F-\x9F]|(?:[a-zA-Z0-9 ]{0,3}[<:@^~]{2,})")
-    has_gibberish = len(gibberish_pattern.findall(raw_text)) > 20
-
-    if len(raw_text) < 200 or has_gibberish:
-        uploaded_file.seek(0)
-        try:
-            pdf = pdfium.PdfDocument(uploaded_file.read())
-            total_pages = len(pdf)
-            raw_text = ""
-
-            for page in pdf:
-                # Force standard text extraction fallback first
-                textpage = page.get_textpage()
-                txt = textpage.get_text_bounded()
-                
-                # If the bounded text is also garbled, we extract raw layout character indices directly
-                if not txt or "cid" in txt or len(gibberish_pattern.findall(txt)) > 5:
-                    # Alternative font stream lookup
-                    txt = textpage.get_text_range()
-                
-                if txt:
-                    raw_text += txt + "\n"
-        except Exception:
-            pass
-
-    raw_text = clean_text(raw_text)
-    return raw_text, total_pages
+def get_gemini_model():
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        st.error("⚠️ Add your GEMINI_API_KEY to Streamlit secrets.")
+        st.stop()
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-1.5-flash")
 
 
-def prepare_context(text, max_chars=55000):
-    """ Keeps an expanded beginning, middle, and end of long judgments. """
-    if len(text) <= max_chars:
-        return text
+ANALYSIS_PROMPT = """
+You are a senior legal analyst. Read the legal document below and produce a structured analysis.
+Return EXACTLY these 7 sections, each starting with its label on its own line, followed by the content.
+Keep each section concise: 2–5 sentences or a short bulleted list. Do not pad or repeat.
 
-    start = text[:20000]
-    middle_start = len(text) // 2 - 10000
-    middle_end = len(text) // 2 + 10000
-    middle = text[middle_start:middle_end]
-    end = text[-15000:]
+CASE NAME:
+PARTIES:
+MATERIAL FACTS:
+LEGAL ISSUES:
+RATIO DECIDENDI:
+DECISION / HOLDING:
+KEY TAKEAWAY:
 
-    return (
-        start
-        + "\n\n====================\n"
-        + "MIDDLE OF JUDGMENT\n"
-        + "====================\n\n"
-        + middle
-        + "\n\n====================\n"
-        + "END OF JUDGMENT\n"
-        + "====================\n\n"
-        + end
-    )
-
-
-# ------------------------------
-# Sidebar
-# ------------------------------
-with st.sidebar:
-    st.title("📂 Upload Center")
-    uploaded_file = st.file_uploader(
-        "Upload Judgment (PDF)",
-        type=["pdf"]
-    )
-
-    st.divider()
-    st.info(
-        """
-Supported:
-✅ Supreme Court | ✅ High Courts | ✅ UK Cases
+Document:
+{text}
 """
-    )
 
-# ------------------------------
-# Load PDF
-# ------------------------------
-if uploaded_file:
-    raw_text, total_pages = extract_pdf_text(uploaded_file)
-    total_chars = len(raw_text)
+CHAT_PROMPT = """
+You are a sharp legal assistant. The user has uploaded a legal document.
+Answer questions about it clearly and concisely — 2 to 5 sentences max.
+Do not repeat the question. Get straight to the point.
 
-    if total_chars < 100:
-        st.error("❌ Unable to decode this PDF layer properly. Ensure it contains readable characters or clear digital scans.")
-        st.stop()
-
-    context = prepare_context(raw_text)
-    st.sidebar.success(
-        f"✅ Loaded {total_pages} pages | {total_chars:,} characters extracted"
-    )
-
-    if "OPENROUTER_API_KEY" not in st.secrets:
-        st.error("OPENROUTER_API_KEY missing from Streamlit Secrets.")
-        st.stop()
-
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=st.secrets["OPENROUTER_API_KEY"],
-    )
-
-    left, right = st.columns([1.35, 1])
-
-    # ==========================================================
-    # NOTES GENERATOR
-    # ==========================================================
-    with left:
-        st.subheader("📚 Structured Judgment Notes")
-
-        if st.button(
-            "⚖️ Generate Complete Notes",
-            use_container_width=True,
-        ):
-            with st.spinner("Reading judgment and extracting legal principles..."):
-                prompt = dedent(f"""
-You are a senior law professor and Supreme Court legal researcher.
-Your ONLY source is the uploaded judgment text.
-
-STRICT RULES
-1. Never invent facts. If strings look like unreadable garbage symbols, ignore them completely.
-2. Rely only on legible text. If substantive information cannot be determined due to encoding issues, write 'Not stated in the judgment.' under that field.
-3. Extract ONLY what the Court actually decided from the legible segments.
-
-==================================================
-OUTPUT FORMAT
-
-# 📌 CASE IDENTIFICATION
-Case Name
-Court
-Bench
-Year
-Area of Law
-
---------------------------------------------------
-# ⚖️ CORE DOCTRINE
-Statutory Provisions
-Core Legal Principle
-
---------------------------------------------------
-# 🔍 MATERIAL FACTS
-4–8 concise bullet points.
-No procedural history.
-
---------------------------------------------------
-# ❓ CORE LEGAL ISSUES
-Maximum 4 issues as questions.
-
---------------------------------------------------
-# ⚖️ COURT'S REASONING
-Explain the reasoning in numbered steps (Maximum 8).
-
---------------------------------------------------
-# 📚 RATIO DECIDENDI
-State ONLY the core legal rule necessary for deciding this case.
-
---------------------------------------------------
-# 💬 OBITER DICTA
-Observations that were NOT necessary. If none, write "No significant obiter."
-
---------------------------------------------------
-# 🏆 HOLDING
-Who won and relief granted.
-
---------------------------------------------------
-# 📖 IMPORTANT CASES CITED
-Case Name -> Why it was cited
-
---------------------------------------------------
-# 🎓 ACADEMIC SIGNIFICANCE
-Why this case matters. Maximum 5 bullets.
-
---------------------------------------------------
-# ⚡ 30 SECOND REVISION
-Facts -> Issue -> Holding -> Ratio -> Important Sections -> Exam Keyword -> One-Line Memory Trick
-
-==================================================
-Judgment
---------------------------
-{context}
-""")
-
-                try:
-                    response = client.chat.completions.create(
-                        model="openrouter/free",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.15,
-                        max_tokens=2200,
-                    )
-                    notes = response.choices[0].message.content
-                    st.markdown(notes)
-
-                    st.download_button(
-                        "⬇ Download Notes",
-                        notes,
-                        file_name="Judgment_Notes.md",
-                        mime="text/markdown",
-                        use_container_width=True,
-                    )
-                except Exception as e:
-                    st.error(f"API Error: {e}")
-
-    # ==========================================================
-    # CHAT ASSISTANT
-    # ==========================================================
-    with right:
-        st.subheader("💬 Legal Judgment Assistant")
-        user_question = st.text_input("Ask a legal question")
-
-        if user_question:
-            with st.spinner("Analysing judgment..."):
-                chat_prompt = dedent(f"""
-Answer the user's question accurately and concisely using ONLY the text provided.
-If the text consists of unreadable symbols or lacks context for the answer, state 'Not stated in the judgment.'
-
-Judgment
+Document context:
 {context}
 
-User Question
-{user_question}
-""")
-                try:
-                    reply = client.chat.completions.create(
-                        model="openrouter/free",
-                        messages=[{"role": "user", "content": chat_prompt}],
-                        temperature=0,
-                        max_tokens=700,
-                    )
-                    st.success(reply.choices[0].message.content)
-                except Exception as e:
-                    st.error(f"API Error: {e}")
+User question: {question}
+"""
 
-    with st.expander("📄 View Extracted Judgment Text"):
-        st.text_area("Extracted Text", raw_text, height=500)
 
-    st.divider()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Pages", total_pages)
-    c2.metric("Characters", f"{len(raw_text):,}")
-    c3.metric("Words", f"{len(raw_text.split()):,}")
-    c4.metric("Parser", "Dynamic Text Map Cleanup")
-else:
-    st.info("👈 Upload a legal judgment PDF to begin.")
+def parse_analysis(raw: str) -> dict:
+    labels = [
+        "CASE NAME", "PARTIES", "MATERIAL FACTS",
+        "LEGAL ISSUES", "RATIO DECIDENDI", "DECISION / HOLDING", "KEY TAKEAWAY"
+    ]
+    result = {l: "" for l in labels}
+    lines = raw.splitlines()
+    current = None
+    buffer = []
+
+    for line in lines:
+        stripped = line.strip()
+        matched = False
+        for label in labels:
+            if stripped.upper().startswith(label):
+                if current:
+                    result[current] = " ".join(buffer).strip()
+                current = label
+                # Content may follow the colon on the same line
+                after = stripped[len(label):].lstrip(":").strip()
+                buffer = [after] if after else []
+                matched = True
+                break
+        if not matched and current:
+            buffer.append(stripped)
+
+    if current:
+        result[current] = " ".join(buffer).strip()
+
+    return result
+
+
+def render_analysis(sections: dict):
+    icons = {
+        "CASE NAME": "🏛️",
+        "PARTIES": "👥",
+        "MATERIAL FACTS": "📋",
+        "LEGAL ISSUES": "⚖️",
+        "RATIO DECIDENDI": "📐",
+        "DECISION / HOLDING": "🔨",
+        "KEY TAKEAWAY": "💡",
+    }
+    for label, content in sections.items():
+        if content:
+            st.markdown(f"""
+            <div class="card">
+                <div class="card-label">{icons.get(label, '•')} {label}</div>
+                <div class="card-content">{content}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# ── Session state ─────────────────────────────────────────────────────────────
+if "doc_text" not in st.session_state:
+    st.session_state.doc_text = ""
+if "analysis" not in st.session_state:
+    st.session_state.analysis = {}
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "page_count" not in st.session_state:
+    st.session_state.page_count = 0
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown('<div class="main-title">⚖️ Nischal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Legal Document Analyser</div>', unsafe_allow_html=True)
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+    uploaded = st.file_uploader("Upload a PDF (max 100 pages)", type=["pdf"])
+
+    if uploaded:
+        with st.spinner("Reading PDF…"):
+            text, pages = extract_pdf_text(uploaded)
+        st.session_state.doc_text = text
+        st.session_state.page_count = pages
+        st.session_state.analysis = {}
+        st.session_state.chat_history = []
+        st.success(f"✅ Loaded {pages} page{'s' if pages != 1 else ''}")
+
+    if st.session_state.doc_text:
+        st.markdown('<hr class="divider">', unsafe_allow_html=True)
+        if st.button("🔍 Analyse Document"):
+            with st.spinner("Analysing…"):
+                model = get_gemini_model()
+                prompt = ANALYSIS_PROMPT.format(
+                    text=st.session_state.doc_text[:30000]
+                )
+                response = model.generate_content(prompt)
+                st.session_state.analysis = parse_analysis(response.text)
+
+        st.markdown('<hr class="divider">', unsafe_allow_html=True)
+        if st.button("🗑️ Clear Everything"):
+            for key in ["doc_text", "analysis", "chat_history", "page_count"]:
+                st.session_state[key] = {} if key == "analysis" else ([] if key == "chat_history" else ("" if key != "page_count" else 0))
+            st.rerun()
+
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:0.75rem;color:#555;">Powered by Gemini 1.5 Flash · Free tier</div>', unsafe_allow_html=True)
+
+
+# ── Main layout ───────────────────────────────────────────────────────────────
+col_analysis, col_chat = st.columns([1.1, 0.9], gap="large")
+
+# Left column — Analysis
+with col_analysis:
+    st.markdown('<div class="main-title" style="font-size:1.6rem;">Case Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+    if not st.session_state.doc_text:
+        st.markdown("""
+        <div class="card">
+            <div class="card-content" style="color:#666;">
+                Upload a PDF from the sidebar, then click <strong style="color:#c9a84c;">Analyse Document</strong> to extract the case summary.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    elif not st.session_state.analysis:
+        st.markdown("""
+        <div class="card">
+            <div class="card-content" style="color:#888;">
+                Document loaded. Click <strong style="color:#c9a84c;">Analyse Document</strong> in the sidebar.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        render_analysis(st.session_state.analysis)
+
+
+# Right column — Chat
+with col_chat:
+    st.markdown('<div class="main-title" style="font-size:1.6rem;">Ask Nischal</div>', unsafe_allow_html=True)
+    st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
+    if not st.session_state.doc_text:
+        st.markdown("""
+        <div class="card">
+            <div class="card-content" style="color:#666;">
+                Upload a document first to start asking questions.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Chat history display
+        chat_container = st.container()
+        with chat_container:
+            if not st.session_state.chat_history:
+                st.markdown("""
+                <div class="card" style="border-color:#2a2d3a;">
+                    <div class="card-content" style="color:#666;font-size:0.85rem;">
+                        Ask anything about the document — parties, jurisdiction, ratio, outcome…
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            for turn in st.session_state.chat_history:
+                st.markdown(f'<div class="chat-bubble-user">🧑 {turn["q"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="chat-bubble-bot">🤖 {turn["a"]}</div>', unsafe_allow_html=True)
+
+        st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+
+        # Input
+        with st.form("chat_form", clear_on_submit=True):
+            question = st.text_input("Your question", placeholder="e.g. What was the main legal issue?", label_visibility="collapsed")
+            submitted = st.form_submit_button("Send →")
+
+        if submitted and question.strip():
+            with st.spinner("Thinking…"):
+                model = get_gemini_model()
+                context = st.session_state.doc_text[:20000]
+                prompt = CHAT_PROMPT.format(context=context, question=question.strip())
+                response = model.generate_content(prompt)
+                answer = response.text.strip()
+                st.session_state.chat_history.append({"q": question.strip(), "a": answer})
+            st.rerun()
+
+        if st.session_state.chat_history:
+            if st.button("Clear chat"):
+                st.session_state.chat_history = []
+                st.rerun()
