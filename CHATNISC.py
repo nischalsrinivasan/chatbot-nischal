@@ -6,18 +6,12 @@ from openai import OpenAI
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze judgments and generate structured notes matching your exact NLSIU format standard.")
+st.write("Analyze judgments and generate structured notes matching your exact law note benchmarks.")
 
 # Sidebar for file uploads
 with st.sidebar:
     st.header("Upload Center")
     uploaded_file = st.file_uploader("Upload Case Judgment (PDF)", type="pdf")
-    
-    st.header("Course Context")
-    selected_module = st.selectbox(
-        "Select Subject Stream:",
-        ["General Analysis", "Contracts II", "Property Law"]
-    )
 
 if uploaded_file:
     raw_text = ""
@@ -72,7 +66,7 @@ if uploaded_file:
                         "Match the exact formatting blueprint found in top-tier law notes (hierarchical, bulleted, bolded sections, zero fluff). "
                         "Organize the output strictly using this precise structure:\n\n"
                         "### 📌 [TOPIC / CORE DOCTRINE COVERED]\n"
-                        "- **Statutory Provisions**: [List specific Sections of the ICA or TPA invoked, e.g., Section 124 / Section 54]\n"
+                        "- **Statutory Provisions**: [List specific Sections of the Indian Contract Act or Sale of Goods Act or Transfer of Property Act invoked, e.g., Section 124 / Section 54]\n"
                         "- **Core Principle**: [Provide a direct, 1-2 sentence definition of the legal rule or doctrine established in this judgment]\n\n"
                         "### ⚖️ CASE ANALYSIS: [Case Name]\n"
                         "- **Fact Blueprint**: [A single, highly condensed bullet point summarizing only the material facts that triggered the cause of action. Absolutely no administrative history.]\n"
@@ -82,12 +76,11 @@ if uploaded_file:
                         "  - [Specific test or standard laid down by the judges, using bolding for key legal terms]\n"
                         "  - [Final conclusion and how the rule applies to these specific facts]\n\n"
                         "### 📚 CLASS ROOM NUANCE & CRITIQUE\n"
-                        "- [Provide a crisp, analytical bullet point detailing the academic critique, legal fiction, or broader impact of this ruling on the chosen subject stream]\n\n"
+                        "- [Provide a crisp, analytical bullet point detailing the academic critique, legal fiction, or broader impact of this ruling on the underlying statutory application]\n\n"
                         "### 🚀 INSTANT SNAPSHOT\n"
                         "- **Facts**: [1 sentence summary]\n"
                         "- **Issue**: [1 sentence summary]\n"
                         "- **Ratio**: [1 sentence summary]\n\n"
-                        f"Subject Stream Selected Context: {selected_module}\n"
                         f"Case Text Segments:\n\n{optimized_context}"
                     )
                     try:
@@ -109,7 +102,6 @@ if uploaded_file:
                     chat_prompt = (
                         "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
                         "Give a straight, to-the-point answer followed by a very short, clear explanation. Do not use long-winded essay blocks.\n\n"
-                        f"Subject Stream Context: {selected_module}\n"
                         f"Case Material:\n{optimized_context}\n\n"
                         f"User Query: {user_question}"
                     )
