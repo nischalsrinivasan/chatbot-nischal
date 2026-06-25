@@ -6,7 +6,7 @@ from openai import OpenAI
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze judgments and consult with an AI assistant structured around your law note formats.")
+st.write("Analyze judgments and generate notes matching your exact academic format standard.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -66,7 +66,7 @@ if uploaded_file:
         with col1:
             st.subheader("📋 FIRAC EXTRACTION")
             if st.button("✨ Generate Notes"):
-                with st.spinner("Structuring notes..."):
+                with st.spinner("Structuring notes to standard..."):
                     full_prompt = (
                         "You are an expert Indian legal analyst. Analyze the court judgment text segments below and organize your output to perfectly match a student's highly structured, clean law notes style. Use clear bullet points and bolding for key doctrines or statutory provisions. Follow this format exactly:\n\n"
                         "## 📋 CORE LEGAL ISSUES\nState cleanly, numbered, and precisely the core legal questions the court had to resolve.\n\n"
