@@ -5,34 +5,18 @@ from openai import OpenAI
 
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
-st.title("⚖️ Nischal's Chat Bot (RAG Enabled)")
-st.write("Cross-referencing legal judgments against your NLSIU Contracts II & Property Law benchmarks.")
-
-# Simulated Knowledge Base Embeddings (Extracted Core Frameworks from your Course Notes)
-COURSE_NOTES_KNOWLEDGE = {
-    "contracts_ii": (
-        "Prof. Ragini Surana Course Notes Standards:\n"
-        "- Focuses heavily on the Law of Unjust Enrichment, restitutionary remedies, and obligations outside traditional contract barriers.\n"
-        "- Emphasizes legal capacity thresholds (e.g., critical readings of Section 11 and Mohori Bibee void ab initio doctrines vs. practical digital realities).\n"
-        "- Prioritizes statutory interpretation of specific indemnity, guarantee, bailment, pledge, and agency provisions under the ICA."
-    ),
-    "property_law": (
-        "Prof. Karthik Suresh Course Notes Standards:\n"
-        "- Theoretical frameworks of property rights, conceptions of justice, and distributive mechanisms under the TP Act, 1882.\n"
-        "- Focuses on modes of transfer: specific mechanics of Sale, Mortgage, Lease, Exchange, and Gifts.\n"
-        "- Emphasizes constitutional history (balancing private property vs. public interest), RERA 2016 consumer interpretations, and the Indian Easements Act."
-    )
-}
+st.title("⚖️ Nischal's Chat Bot")
+st.write("Analyze judgments and consult with an AI assistant structured around your law note formats.")
 
 # Sidebar for file uploads
 with st.sidebar:
     st.header("Upload Center")
     uploaded_file = st.file_uploader("Upload Case Judgment (PDF)", type="pdf")
     
-    st.header("RAG Context Engine")
+    st.header("Course Context")
     selected_module = st.selectbox(
-        "Select Course Benchmark Alignment:",
-        ["None (Standard Analysis)", "Contracts II (Prof. Ragini Surana)", "Property Law (Prof. Karthik Suresh)"]
+        "Select Subject Stream:",
+        ["General Analysis", "Contracts II", "Property Law"]
     )
 
 if uploaded_file:
@@ -72,13 +56,6 @@ if uploaded_file:
             api_key=st.secrets["OPENROUTER_API_KEY"],
         )
 
-        # Retrieve mapped RAG anchor context based on selection
-        rag_context = ""
-        if "Contracts II" in selected_module:
-            rag_context = COURSE_NOTES_KNOWLEDGE["contracts_ii"]
-        elif "Property Law" in selected_module:
-            rag_context = COURSE_NOTES_KNOWLEDGE["property_law"]
-
         if total_chars > 25000:
             optimized_context = raw_text[:18000] + "\n\n[...]\n\n" + raw_text[-7000:]
         else:
@@ -88,16 +65,16 @@ if uploaded_file:
 
         with col1:
             st.subheader("📋 FIRAC EXTRACTION")
-            if st.button("✨ Generate Benchmarked Notes"):
-                with st.spinner("Executing RAG synthesis..."):
+            if st.button("✨ Generate Notes"):
+                with st.spinner("Structuring notes..."):
                     full_prompt = (
-                        "You are an expert Indian legal analyst. Analyze the court judgment segments below and synthesize them into a clean, unified breakdown matching this exact, uniform format rule. Do not add random prose outside these headers:\n\n"
-                        "## 📋 CORE LEGAL ISSUES\nState cleanly and precisely the core questions of law the court had to resolve.\n\n"
-                        "## 🔍 MATERIAL FACTS\nProvide a highly concise, text-bounded paragraph of only the critical, essential facts necessary to understand the cause of action.\n\n"
-                        "## ⚖️ RATIO DECIDENDI & JURISPRUDENTIAL LOGIC\nProvide a detailed, highly comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, and any specific legal tests or statutory provisions applied by the court.\n\n"
-                        "## 📚 COURSE NOTE BENCHMARK ALIGNMENT\nUsing the course note metrics provided below, map out exactly how this judgment aligns with, expands upon, or critiques the specific doctrines or academic frameworks taught in class.\n\n"
-                        "## 🚀 INSTANT SNAPSHOT\nProvide a clean, easy-to-read summary covering the absolute essence of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
-                        f"Course Note Benchmarks:\n{rag_context}\n\n"
+                        "You are an expert Indian legal analyst. Analyze the court judgment text segments below and organize your output to perfectly match a student's highly structured, clean law notes style. Use clear bullet points and bolding for key doctrines or statutory provisions. Follow this format exactly:\n\n"
+                        "## 📋 CORE LEGAL ISSUES\nState cleanly, numbered, and precisely the core legal questions the court had to resolve.\n\n"
+                        "## 🔍 MATERIAL FACTS\nProvide a highly concise, text-bounded paragraph of only the critical, essential facts necessary to understand the cause of action. Skip any background filler.\n\n"
+                        "## ⚖️ RATIO DECIDENDI\nProvide a detailed, highly comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, specific legal tests, and statutory sections applied by the court. Break this down with clear sub-bullets for readability.\n\n"
+                        "## 📚 CLASS NOTE SYNC\nProvide a crisp, direct summary of how this judgment relates to the core concepts, modules, or statutory rules of the chosen stream (Contracts II or Property Law).\n\n"
+                        "## 🚀 INSTANT SNAPSHOT\nProvide a clean, easy-to-read summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
+                        f"Subject Stream Selected: {selected_module}\n"
                         f"Case Text Segments:\n\n{optimized_context}"
                     )
                     try:
@@ -111,14 +88,15 @@ if uploaded_file:
                         st.error(f"❌ API Error: {str(e)}")
 
         with col2:
-            st.subheader("💬 BENCHMARKED CONSULTATION")
-            user_question = st.text_input("Query arguments or verify specific sections against class benchmarks...")
+            st.subheader("💬 CHAT ASSISTANT")
+            user_question = st.text_input("Ask a question, query arguments, or verify specific sections...")
             
             if user_question:
-                with st.spinner("Evaluating against notes..."):
+                with st.spinner("Evaluating..."):
                     chat_prompt = (
-                        "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely, framing your explanation through the lens of the provided academic course benchmarks.\n\n"
-                        f"Course Benchmarks:\n{rag_context}\n\n"
+                        "You are an expert AI Legal Consultant. Answer the user's question accurately, directly, and concisely. "
+                        "Give a straight, to-the-point answer followed by a very short, clear explanation. Do not use long-winded essay blocks.\n\n"
+                        f"Subject Stream Context: {selected_module}\n"
                         f"Case Material:\n{optimized_context}\n\n"
                         f"User Query: {user_question}"
                     )
