@@ -2,6 +2,7 @@ import streamlit as st
 import fitz  # PyMuPDF
 import requests
 import re
+import string
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -120,7 +121,7 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
             ],
         }
         try:
-            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=45)
             if resp.status_code == 200:
                 text_out = resp.json()["choices"][0]["message"]["content"].strip()
                 if text_out:
@@ -133,18 +134,34 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
     raise RuntimeError(f"All free options failed. Details: {last_err}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
+def clean_extracted_text(text: str) -> str:
+    """Removes non-printable characters and normalizes massive white spaces."""
+    printable = set(string.printable)
+    cleaned = "".join(filter(lambda x: x in printable, text))
+    cleaned = re.sub(r'\s+', ' ', cleaned)  # Collapse sequential whitespace
+    return cleaned.strip()
+
 def extract_pdf_text(file) -> tuple[str, int]:
     doc = fitz.open(stream=file.read(), filetype="pdf")
     pages = min(len(doc), MAX_PAGES)
-    text = ""
+    text_runs = []
+    
     for i in range(pages):
-        text += doc[i].get_text()
-    return text.strip(), pages
+        page = doc[i]
+        page_text = page.get_text("text") # Fallback layout reader
+        if len(page_text.strip()) < 50:
+            # Try block layout if regular text comes back nearly empty
+            page_text = "\n".join([b[4] for b in page.get_text("blocks") if isinstance(b[4], str)])
+        text_runs.append(page_text)
+        
+    full_raw_text = "\n".join(text_runs)
+    return clean_extracted_text(full_raw_text), pages
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-ANALYSIS_SYSTEM = """You are a precise legal assistant tool. Analyze the document and summarize it. 
-You must present your analysis using exactly these headers. Write a plain paragraph of 2 to 4 clear legal sentences under each header.
+ANALYSIS_SYSTEM = """You are an expert legal assistant specialized in decoding court filings. 
+Analyze the provided judicial text and reconstruct a coherent case summary under the required fields. 
+Ignore artifacts, page numbers, or line noise. Write a factual summary paragraph (2 to 4 sentences) for every single label.
 
 CASE NAME:
 PARTIES:
@@ -167,15 +184,12 @@ def parse_analysis(raw: str) -> dict:
     ]
     result = {}
     
-    # Clean string variations (strip markdown bold highlights from text block)
     clean_raw = raw.replace("**", "").replace("###", "").strip()
     
-    # Dynamically extract everything between section headers using regex bounds
     for i, label in enumerate(labels):
         start_match = re.search(r'(?i)' + re.escape(label) + r'\s*:?', clean_raw)
         if start_match:
             start_idx = start_match.end()
-            # If there is a next section header, end extraction there; otherwise read to end of string
             if i + 1 < len(labels):
                 next_label = labels[i + 1]
                 end_match = re.search(r'(?i)' + re.escape(next_label) + r'\s*:?', clean_raw)
@@ -184,9 +198,9 @@ def parse_analysis(raw: str) -> dict:
                 end_idx = len(clean_raw)
                 
             content = clean_raw[start_idx:end_idx].strip()
-            result[label] = content if content else "Information not generated for this block."
+            result[label] = content if content else "Summary details missing from raw model output."
         else:
-            result[label] = "Header omitted by the generation model."
+            result[label] = f"Could not extract section for {label}."
             
     return result
 
@@ -224,7 +238,7 @@ with st.sidebar:
     uploaded = st.file_uploader("Upload a PDF (max 100 pages)", type=["pdf"])
 
     if uploaded:
-        with st.spinner("Reading PDF…"):
+        with st.spinner("Reading and Sanitizing PDF…"):
             text, pages = extract_pdf_text(uploaded)
         st.session_state.doc_text = text
         st.session_state.page_count = pages
@@ -244,7 +258,7 @@ with st.sidebar:
                         raw = call_openrouter(
                             api_key,
                             system_prompt=ANALYSIS_SYSTEM,
-                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:28000]}",
+                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:32000]}",
                             max_tokens=1400,
                         )
                         st.session_state.analysis = parse_analysis(raw)
@@ -335,7 +349,7 @@ with col_chat:
             else:
                 with st.spinner("Thinking…"):
                     try:
-                        context = st.session_state.doc_text[:16000]
+                        context = st.session_state.doc_text[:18000]
                         user_msg = f"Document:\n{context}\n\nQuestion: {question.strip()}"
                         answer = call_openrouter(
                             api_key,
