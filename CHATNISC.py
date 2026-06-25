@@ -93,7 +93,7 @@ section[data-testid="stSidebar"] {
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Best FREE model on OpenRouter as of 2024 — reliable, fast, great for legal text
-FREE_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 
 # ── OpenRouter API call ───────────────────────────────────────────────────────
 def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
