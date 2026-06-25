@@ -101,10 +101,8 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
         "X-Title": "Nischal Chat Bot",
     }
-    
-    # Force Gemini 2.5 Flash Free: fast, massive window, highly obedient to formatting rules
     payload = {
-        "model": "google/gemini-2.5-flash:free",
+        "model": "openrouter/free",  # Dynamically routes to whatever free tier model is active
         "max_tokens": max_tokens,
         "messages": [
             {"role": "system", "content": system_prompt},
@@ -131,13 +129,10 @@ def extract_pdf_text(file) -> tuple[str, int]:
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-ANALYSIS_SYSTEM = """You are a precise corporate legal analyst tool.
-Analyze the provided legal document and fill out exactly the 7 labels below. 
+ANALYSIS_SYSTEM = """You are a precise legal assistant tool. Analyze the document and summarize it under these headers.
 
-Instructions:
-1. Provide ONLY factual content directly pulled from the case text.
-2. Write 2 to 4 clear legal sentences under each header.
-3. Do not include any metatext commentary, sentence count tallies, explanations, or labels matching "sentence1" or "=>". Just write plain summary paragraphs under the headers.
+Write a plain paragraph of 2-4 sentences under each header. 
+Do NOT output structural examples, checkboxes, or text like 'sentence1, sentence2 => 2 sentences'. Just provide the legal information.
 
 CASE NAME:
 PARTIES:
@@ -173,7 +168,7 @@ def parse_analysis(raw: str) -> dict:
             if stripped.upper().startswith(label):
                 if current:
                     content = " ".join(buffer).strip()
-                    # Filter out any weird evaluation leakages or evaluation remarks
+                    # Clean out structural junk text if any free model tries to leak it
                     if "=>" not in content and "sentence1" not in content:
                         result[current] = content
                 current = label
@@ -241,7 +236,7 @@ with st.sidebar:
             if not api_key:
                 st.error("⚠️ Add OPENROUTER_API_KEY to Streamlit secrets.")
             else:
-                with st.spinner("Processing analysis via Gemini..."):
+                with st.spinner("Processing analysis..."):
                     try:
                         raw = call_openrouter(
                             api_key,
@@ -263,7 +258,7 @@ with st.sidebar:
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-size:0.75rem;color:#555;">Powered by Gemini Free via OpenRouter</div>',
+        '<div style="font-size:0.75rem;color:#555;">Powered by OpenRouter Auto-Free Tier</div>',
         unsafe_allow_html=True,
     )
 
