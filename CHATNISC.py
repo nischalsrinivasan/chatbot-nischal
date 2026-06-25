@@ -49,7 +49,6 @@ def extract_pdf_text(uploaded_file):
 
     raw_text = clean_text(raw_text)
     
-    # Structural Fix: Corrected indentation for fallback handler trigger point
     if len(raw_text) < 200:
         uploaded_file.seek(0)
         try:
@@ -69,20 +68,23 @@ def extract_pdf_text(uploaded_file):
     return raw_text, total_pages
 
 
-def prepare_context(text, max_chars=45000):
+def prepare_context(text, max_chars=55000):
     """
-    Keeps beginning, middle and end of long judgments.
-    Better than simply taking the first and last pages.
+    Keeps an expanded beginning, middle, and end of long judgments.
+    Optimized to capture core reasoning windows without choking the free tier.
     """
     if len(text) <= max_chars:
         return text
 
-    start = text[:15000]
+    # Capture initial pages for case metadata and background facts
+    start = text[:20000]
 
-    middle_start = len(text) // 2 - 7500
-    middle_end = len(text) // 2 + 7500
+    # Dynamically targets the middle 20,000 characters where main arguments sit
+    middle_start = len(text) // 2 - 10000
+    middle_end = len(text) // 2 + 10000
     middle = text[middle_start:middle_end]
 
+    # Capture the final 15,000 characters for ratios and structural holdings
     end = text[-15000:]
 
     return (
@@ -287,7 +289,7 @@ Judgment
                     st.error(f"API Error: {e}")
 
     # ==========================================================
-    # CHAT ASSISTANT (Structural Fix: Re-aligned cleanly under layout grid)
+    # CHAT ASSISTANT
     # ==========================================================
     with right:
         st.subheader("💬 Legal Judgment Assistant")
