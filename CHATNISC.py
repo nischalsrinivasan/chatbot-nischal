@@ -89,9 +89,17 @@ section[data-testid="stSidebar"] {
 </style>
 """, unsafe_allow_html=True)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
+# ── Constants & Robust Fallbacks ──────────────────────────────────────────────
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Current highest availability production free models on OpenRouter
+FALLBACK_FREE_MODELS = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "openai/gpt-oss-120b:free",
+    "mistralai/mistral-7b-instruct:free",
+    "openrouter/free"
+]
 
 # ── OpenRouter API Call ───────────────────────────────────────────────────────
 def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
@@ -101,22 +109,29 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
         "X-Title": "Nischal Chat Bot",
     }
-    payload = {
-        "model": "openrouter/free",  # Dynamically routes to whatever free tier model is active
-        "max_tokens": max_tokens,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
-    }
-    try:
-        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=45)
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"].strip()
-        else:
-            raise RuntimeError(f"OpenRouter Error {resp.status_code}: {resp.text[:200]}")
-    except Exception as e:
-        raise RuntimeError(f"Connection Error: {str(e)}")
+    
+    last_err = ""
+    for model in FALLBACK_FREE_MODELS:
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        try:
+            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                text_out = resp.json()["choices"][0]["message"]["content"].strip()
+                if text_out:
+                    return text_out
+            last_err = f"Model {model} returned status {resp.status_code}"
+        except Exception as e:
+            last_err = str(e)
+            continue
+            
+    raise RuntimeError(f"All free model options failed or returned empty content. Details: {last_err}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
@@ -129,10 +144,8 @@ def extract_pdf_text(file) -> tuple[str, int]:
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-ANALYSIS_SYSTEM = """You are a precise legal assistant tool. Analyze the document and summarize it under these headers.
-
-Write a plain paragraph of 2-4 sentences under each header. 
-Do NOT output structural examples, checkboxes, or text like 'sentence1, sentence2 => 2 sentences'. Just provide the legal information.
+ANALYSIS_SYSTEM = """You are a precise legal assistant tool. Analyze the document and fill out information strictly under these headings.
+Write exactly a plain block paragraph of 2 to 4 clear legal sentences under each heading name.
 
 CASE NAME:
 PARTIES:
@@ -153,7 +166,7 @@ def parse_analysis(raw: str) -> dict:
         "CASE NAME", "PARTIES", "MATERIAL FACTS",
         "LEGAL ISSUES", "RATIO DECIDENDI", "DECISION / HOLDING", "KEY TAKEAWAY",
     ]
-    result = {l: "" for l in labels}
+    result = {l: "Not found in analysis output." for l in labels}
     lines = raw.splitlines()
     current = None
     buffer = []
@@ -168,8 +181,7 @@ def parse_analysis(raw: str) -> dict:
             if stripped.upper().startswith(label):
                 if current:
                     content = " ".join(buffer).strip()
-                    # Clean out structural junk text if any free model tries to leak it
-                    if "=>" not in content and "sentence1" not in content:
+                    if content:
                         result[current] = content
                 current = label
                 after = stripped[len(label):].lstrip(":").strip()
@@ -181,7 +193,7 @@ def parse_analysis(raw: str) -> dict:
 
     if current:
         content = " ".join(buffer).strip()
-        if "=>" not in content and "sentence1" not in content:
+        if content:
             result[current] = content
             
     return result
@@ -194,13 +206,12 @@ def render_analysis(sections: dict):
         "DECISION / HOLDING": "🔨", "KEY TAKEAWAY": "💡",
     }
     for label, content in sections.items():
-        if content:
-            st.markdown(f"""
-            <div class="card">
-                <div class="card-label">{icons.get(label, '•')} {label}</div>
-                <div class="card-content">{content}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        st.markdown(f"""
+        <div class="card">
+            <div class="card-label">{icons.get(label, '•')} {label}</div>
+            <div class="card-content">{content}</div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
 # ── Session state ─────────────────────────────────────────────────────────────
@@ -258,7 +269,7 @@ with st.sidebar:
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-size:0.75rem;color:#555;">Powered by OpenRouter Auto-Free Tier</div>',
+        '<div style="font-size:0.75rem;color:#555;">Powered by OpenRouter High-Capacity Tiers</div>',
         unsafe_allow_html=True,
     )
 
