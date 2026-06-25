@@ -13,7 +13,7 @@ st.set_page_config(
 # ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;600&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=EB+Garamond:wght=400;600&family=Inter:wght=400;500;600&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
@@ -93,16 +93,7 @@ section[data-testid="stSidebar"] {
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Updated with valid, high-availability OpenRouter free models
-FREE_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemini-2.5-flash:free",
-    "mistralai/mistral-7b-instruct:free",
-    "qwen/qwen-2.5-72b-instruct:free",
-    "microsoft/phi-3-medium-128k-instruct:free",
-]
-
-# OpenRouter API call with robust automatic fallback
+# ── OpenRouter API Call ───────────────────────────────────────────────────────
 def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -110,28 +101,25 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
         "HTTP-Referer": "https://nischal-chatbot.streamlit.app",
         "X-Title": "Nischal Chat Bot",
     }
-    last_error = ""
-    for model in FREE_MODELS:
-        payload = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-        }
-        try:
-            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
-            if resp.status_code == 200:
-                return resp.json()["choices"][0]["message"]["content"].strip()
-            
-            # Log the bad status code and try the next model
-            last_error = f"{model} (Status {resp.status_code}: {resp.text[:100]})"
-        except Exception as e:
-            # Catch network timeouts/errors and try the next model
-            last_error = f"{model} (Exception: {str(e)[:100]})"
-            
-    raise RuntimeError(f"All free models are currently busy or unavailable. Please try again in a moment.\n\nDetails of last attempt:\n{last_error}")
+    
+    # We use openrouter/free router to dynamically hit whatever is working right now
+    payload = {
+        "model": "openrouter/free",
+        "max_tokens": max_tokens,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+    }
+    
+    try:
+        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=45)
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        else:
+            raise RuntimeError(f"OpenRouter returned Status {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        raise RuntimeError(f"Network or API Error: {str(e)}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
@@ -240,12 +228,12 @@ with st.sidebar:
             if not api_key:
                 st.error("⚠️ Add OPENROUTER_API_KEY to Streamlit secrets.")
             else:
-                with st.spinner("Analysing with Llama 3.1…"):
+                with st.spinner("Analysing via OpenRouter Free..."):
                     try:
                         raw = call_openrouter(
                             api_key,
                             system_prompt=ANALYSIS_SYSTEM,
-                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:28000]}",
+                            user_message=f"Analyse this legal document:\n\n{st.session_state.doc_text[:24000]}",
                             max_tokens=1400,
                         )
                         st.session_state.analysis = parse_analysis(raw)
@@ -262,7 +250,7 @@ with st.sidebar:
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-size:0.75rem;color:#555;">Powered by Llama 3.1 via OpenRouter · Free</div>',
+        '<div style="font-size:0.75rem;color:#555;">Powered by OpenRouter Auto-Free Router</div>',
         unsafe_allow_html=True,
     )
 
@@ -336,7 +324,7 @@ with col_chat:
             else:
                 with st.spinner("Thinking…"):
                     try:
-                        context = st.session_state.doc_text[:18000]
+                        context = st.session_state.doc_text[:16000]
                         user_msg = f"Document:\n{context}\n\nQuestion: {question.strip()}"
                         answer = call_openrouter(
                             api_key,
