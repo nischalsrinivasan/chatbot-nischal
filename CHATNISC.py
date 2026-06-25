@@ -1,6 +1,7 @@
 import streamlit as st
 import fitz  # PyMuPDF
 import requests
+import re
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -93,10 +94,8 @@ section[data-testid="stSidebar"] {
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Current highest availability production free models on OpenRouter
 FALLBACK_FREE_MODELS = [
     "meta-llama/llama-3.3-70b-instruct:free",
-    "openai/gpt-oss-120b:free",
     "mistralai/mistral-7b-instruct:free",
     "openrouter/free"
 ]
@@ -131,7 +130,7 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
             last_err = str(e)
             continue
             
-    raise RuntimeError(f"All free model options failed or returned empty content. Details: {last_err}")
+    raise RuntimeError(f"All free options failed. Details: {last_err}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
@@ -144,8 +143,8 @@ def extract_pdf_text(file) -> tuple[str, int]:
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-ANALYSIS_SYSTEM = """You are a precise legal assistant tool. Analyze the document and fill out information strictly under these headings.
-Write exactly a plain block paragraph of 2 to 4 clear legal sentences under each heading name.
+ANALYSIS_SYSTEM = """You are a precise legal assistant tool. Analyze the document and summarize it. 
+You must present your analysis using exactly these headers. Write a plain paragraph of 2 to 4 clear legal sentences under each header.
 
 CASE NAME:
 PARTIES:
@@ -160,41 +159,34 @@ Answer questions clearly and concisely — 2 to 5 sentences maximum.
 Do not repeat the question. Get straight to the point. Do not make up facts not in the document."""
 
 
-# ── Parse analysis output ─────────────────────────────────────────────────────
+# ── Parse analysis output with Flexible Regex ─────────────────────────────────
 def parse_analysis(raw: str) -> dict:
     labels = [
         "CASE NAME", "PARTIES", "MATERIAL FACTS",
         "LEGAL ISSUES", "RATIO DECIDENDI", "DECISION / HOLDING", "KEY TAKEAWAY",
     ]
-    result = {l: "Not found in analysis output." for l in labels}
-    lines = raw.splitlines()
-    current = None
-    buffer = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-            
-        matched = False
-        for label in labels:
-            if stripped.upper().startswith(label):
-                if current:
-                    content = " ".join(buffer).strip()
-                    if content:
-                        result[current] = content
-                current = label
-                after = stripped[len(label):].lstrip(":").strip()
-                buffer = [after] if after else []
-                matched = True
-                break
-        if not matched and current and stripped:
-            buffer.append(stripped)
-
-    if current:
-        content = " ".join(buffer).strip()
-        if content:
-            result[current] = content
+    result = {}
+    
+    # Clean string variations (strip markdown bold highlights from text block)
+    clean_raw = raw.replace("**", "").replace("###", "").strip()
+    
+    # Dynamically extract everything between section headers using regex bounds
+    for i, label in enumerate(labels):
+        start_match = re.search(r'(?i)' + re.escape(label) + r'\s*:?', clean_raw)
+        if start_match:
+            start_idx = start_match.end()
+            # If there is a next section header, end extraction there; otherwise read to end of string
+            if i + 1 < len(labels):
+                next_label = labels[i + 1]
+                end_match = re.search(r'(?i)' + re.escape(next_label) + r'\s*:?', clean_raw)
+                end_idx = end_match.start() if end_match else len(clean_raw)
+            else:
+                end_idx = len(clean_raw)
+                
+            content = clean_raw[start_idx:end_idx].strip()
+            result[label] = content if content else "Information not generated for this block."
+        else:
+            result[label] = "Header omitted by the generation model."
             
     return result
 
