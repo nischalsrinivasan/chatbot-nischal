@@ -93,16 +93,16 @@ section[data-testid="stSidebar"] {
 MAX_PAGES = 100
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# Free models tried in order - if one is rate-limited, next is used automatically
+# Updated with valid, high-availability OpenRouter free models
 FREE_MODELS = [
-    "mistralai/mistral-7b-instruct:free",
-    "google/gemma-3-4b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "microsoft/phi-3-mini-128k-instruct:free",
-    "qwen/qwen3-8b:free",
+    "google/gemini-2.5-flash:free",
+    "mistralai/mistral-7b-instruct:free",
+    "qwen/qwen-2.5-72b-instruct:free",
+    "microsoft/phi-3-medium-128k-instruct:free",
 ]
 
-# OpenRouter API call with automatic fallback
+# OpenRouter API call with robust automatic fallback
 def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tokens: int = 1200) -> str:
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -120,14 +120,18 @@ def call_openrouter(api_key: str, system_prompt: str, user_message: str, max_tok
                 {"role": "user", "content": user_message},
             ],
         }
-        resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=60)
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"].strip()
-        if resp.status_code in (429, 404):
-            last_error = f"{model} -> {resp.status_code}"
-            continue
-        raise RuntimeError(f"OpenRouter error {resp.status_code}: {resp.text[:300]}")
-    raise RuntimeError(f"All free models are currently busy. Try again in a minute.\nLast error: {last_error}")
+        try:
+            resp = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"].strip()
+            
+            # Log the bad status code and try the next model
+            last_error = f"{model} (Status {resp.status_code}: {resp.text[:100]})"
+        except Exception as e:
+            # Catch network timeouts/errors and try the next model
+            last_error = f"{model} (Exception: {str(e)[:100]})"
+            
+    raise RuntimeError(f"All free models are currently busy or unavailable. Please try again in a moment.\n\nDetails of last attempt:\n{last_error}")
 
 # ── PDF helpers ───────────────────────────────────────────────────────────────
 def extract_pdf_text(file) -> tuple[str, int]:
