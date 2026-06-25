@@ -6,7 +6,7 @@ from openai import OpenAI
 st.set_page_config(page_title="Nischal's Chat Bot", page_icon="⚖️", layout="wide")
 
 st.title("⚖️ Nischal's Chat Bot")
-st.write("Analyze judgments and generate notes matching your exact academic format standard.")
+st.write("Analyze judgments and generate structured notes matching your exact NLSIU format standard.")
 
 # Sidebar for file uploads
 with st.sidebar:
@@ -46,7 +46,7 @@ if uploaded_file:
     if total_chars < 50:
         st.sidebar.error("❌ Document is unreadable.")
     else:
-        st.sidebar.success(f"Loaded {total_pages} pages ({total_chars} characters)!")
+        st.sidebar.success(f"Successfully loaded {total_pages} pages ({total_chars} characters)!")
 
     if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("Missing OPENROUTER_API_KEY in Streamlit Secrets.")
@@ -64,17 +64,30 @@ if uploaded_file:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("📋 FIRAC EXTRACTION")
+            st.subheader("📋 STRUCTURED EXTRACTION")
             if st.button("✨ Generate Notes"):
-                with st.spinner("Structuring notes to standard..."):
+                with st.spinner("Structuring notes to your exact blueprint..."):
                     full_prompt = (
-                        "You are an expert Indian legal analyst. Analyze the court judgment text segments below and organize your output to perfectly match a student's highly structured, clean law notes style. Use clear bullet points and bolding for key doctrines or statutory provisions. Follow this format exactly:\n\n"
-                        "## 📋 CORE LEGAL ISSUES\nState cleanly, numbered, and precisely the core legal questions the court had to resolve.\n\n"
-                        "## 🔍 MATERIAL FACTS\nProvide a highly concise, text-bounded paragraph of only the critical, essential facts necessary to understand the cause of action. Skip any background filler.\n\n"
-                        "## ⚖️ RATIO DECIDENDI\nProvide a detailed, highly comprehensive analysis here. Thoroughly explain the legal principles, judicial logic, specific legal tests, and statutory sections applied by the court. Break this down with clear sub-bullets for readability.\n\n"
-                        "## 📚 CLASS NOTE SYNC\nProvide a crisp, direct summary of how this judgment relates to the core concepts, modules, or statutory rules of the chosen stream (Contracts II or Property Law).\n\n"
-                        "## 🚀 INSTANT SNAPSHOT\nProvide a clean, easy-to-read summary covering the absolute core of the Fact, Issue, and Ratio in a few punchy sentences.\n\n"
-                        f"Subject Stream Selected: {selected_module}\n"
+                        "You are an expert Indian legal analyst. Analyze the court judgment text segments provided below and convert them into a student's highly structured, clean law notes style. "
+                        "Match the exact formatting blueprint found in top-tier law notes (hierarchical, bulleted, bolded sections, zero fluff). "
+                        "Organize the output strictly using this precise structure:\n\n"
+                        "### 📌 [TOPIC / CORE DOCTRINE COVERED]\n"
+                        "- **Statutory Provisions**: [List specific Sections of the ICA or TPA invoked, e.g., Section 124 / Section 54]\n"
+                        "- **Core Principle**: [Provide a direct, 1-2 sentence definition of the legal rule or doctrine established in this judgment]\n\n"
+                        "### ⚖️ CASE ANALYSIS: [Case Name]\n"
+                        "- **Fact Blueprint**: [A single, highly condensed bullet point summarizing only the material facts that triggered the cause of action. Absolutely no administrative history.]\n"
+                        "- **Core Question**: [The explicit legal issue or question of law phrased as a direct question]\n"
+                        "- **Judicial Test & Logic**:\n"
+                        "  - [First step of the court's reasoning / interpretation of the statutory provision]\n"
+                        "  - [Specific test or standard laid down by the judges, using bolding for key legal terms]\n"
+                        "  - [Final conclusion and how the rule applies to these specific facts]\n\n"
+                        "### 📚 CLASS ROOM NUANCE & CRITIQUE\n"
+                        "- [Provide a crisp, analytical bullet point detailing the academic critique, legal fiction, or broader impact of this ruling on the chosen subject stream]\n\n"
+                        "### 🚀 INSTANT SNAPSHOT\n"
+                        "- **Facts**: [1 sentence summary]\n"
+                        "- **Issue**: [1 sentence summary]\n"
+                        "- **Ratio**: [1 sentence summary]\n\n"
+                        f"Subject Stream Selected Context: {selected_module}\n"
                         f"Case Text Segments:\n\n{optimized_context}"
                     )
                     try:
